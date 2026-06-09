@@ -17,17 +17,21 @@ class AntigravityProvider:
     """LLM provider backed by the local ``agy -p`` CLI.
 
     Args:
+        model: Optional model forwarded as ``--model``.  ``None`` lets ``agy``
+            use its configured default.
         timeout_s: Maximum wall-clock seconds before the process is killed.
         agy_bin: Name or path of the Antigravity executable.
     """
 
     def __init__(
         self,
+        model: str | None = None,
         timeout_s: int = 1800,
         agy_bin: str = "agy",
         extra_args: list[str] | None = None,
         env: dict | None = None,
     ) -> None:
+        self._model = model
         self._timeout_s = timeout_s
         self._agy_bin = agy_bin
         self._extra_args = list(extra_args or [])
@@ -36,8 +40,12 @@ class AntigravityProvider:
 
     def send(self, messages: list[Message], **kwargs: Any) -> str:
         prompt = self._render_messages(messages)
+        model = kwargs.get("model", self._model)
 
-        args = [self._agy_bin, "-p", prompt, *self._extra_args]
+        args = [self._agy_bin]
+        if model:
+            args += ["--model", str(model)]
+        args += ["-p", prompt, *self._extra_args]
 
         returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s, env=self._env)
         if returncode != 0:

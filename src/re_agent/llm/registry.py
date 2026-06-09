@@ -84,6 +84,7 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
         from re_agent.llm.antigravity import AntigravityProvider
 
         return AntigravityProvider(
+            model=config.model or None,
             timeout_s=config.timeout_s,
             extra_args=config.extra_args,
             env=config.env,
@@ -120,7 +121,9 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
 
     return LiteLLMProvider(
         api_key=config.api_key,
-        model=config.model,
+        # API tier needs a concrete id; fall back to the historical default when
+        # the config leaves `model` unset (None).
+        model=config.model or "claude-opus-4-8",
         custom_llm_provider=custom_llm_provider,
         max_tokens=config.max_tokens,
         temperature=config.temperature,

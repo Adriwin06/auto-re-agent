@@ -66,6 +66,30 @@ def test_antigravity_nonzero_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         AntigravityProvider().send([Message(role="user", content="hi")])
 
 
+def test_antigravity_model_forwarded_as_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _patch_run(monkeypatch, antigravity_mod, (0, "ok", ""))
+    AntigravityProvider(model="gemini-3.5-flash").send([Message(role="user", content="hi")])
+    args = captured["args"]
+    assert args[:3] == ["agy", "--model", "gemini-3.5-flash"]
+    assert "-p" in args
+
+
+def test_antigravity_no_model_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _patch_run(monkeypatch, antigravity_mod, (0, "ok", ""))
+    AntigravityProvider().send([Message(role="user", content="hi")])
+    assert "--model" not in captured["args"]
+
+
+def test_registry_antigravity_forwards_model() -> None:
+    from re_agent.llm.antigravity import AntigravityProvider as _Agy
+
+    prov = create_provider(LLMConfig(provider="antigravity", model="gemini-3.5-flash"))
+    assert isinstance(prov, _Agy)
+    assert prov._model == "gemini-3.5-flash"
+    # Default (None) model must NOT leak a Claude id into agy.
+    assert create_provider(LLMConfig(provider="antigravity"))._model is None
+
+
 def test_claude_code_extra_args_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _patch_run(monkeypatch, claude_code_mod, (0, "ok", ""))
     provider = ClaudeCodeProvider(extra_args=["--verbose"], env={"MAX_THINKING_TOKENS": "10000"})

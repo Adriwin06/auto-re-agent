@@ -33,7 +33,9 @@ class LLMConfig:
     """LLM provider configuration."""
 
     provider: str = "anthropic"
-    model: str = "claude-opus-4-8"
+    # None means "let the provider/tier pick its own default" — avoids a
+    # Claude-specific id leaking into non-Claude CLI providers (codex/antigravity).
+    model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
     max_tokens: int = 4096

@@ -157,3 +157,18 @@ def test_registry_litellm_escape_hatch_has_no_custom_provider() -> None:
 def test_registry_unknown_provider_raises() -> None:
     with pytest.raises(ValueError, match="Unknown LLM provider"):
         create_provider(LLMConfig(provider="anthropci"))
+
+
+def test_registry_litellm_default_model_when_unset() -> None:
+    # Schema default model is now None; the API tier must still get a concrete id.
+    provider = create_provider(LLMConfig(provider="anthropic"))
+    assert isinstance(provider, LiteLLMProvider)
+    assert provider._model == "claude-opus-4-8"
+
+
+def test_registry_codex_default_model_when_unset() -> None:
+    from re_agent.llm.codex_cli import CodexCLIProvider
+
+    provider = create_provider(LLMConfig(provider="codex"))
+    assert isinstance(provider, CodexCLIProvider)
+    assert provider._model == "gpt-5.5"  # None must not leak a Claude id
