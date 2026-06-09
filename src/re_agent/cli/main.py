@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     stat_p.add_argument("--class", dest="class_name", help="Filter by class")
     stat_p.add_argument("--format", choices=["text", "json", "markdown"], default="text")
 
+    # agentify-login
+    sub.add_parser(
+        "agentify-login",
+        help="Pre-warm Agentify Desktop browser sessions (one-time interactive sign-in)",
+    )
+
     return parser
 
 
@@ -67,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         from re_agent.cli.cmd_status import cmd_status
         return cmd_status(args)
+
+    if args.command == "agentify-login":
+        from re_agent.cli.cmd_agentify_login import cmd_agentify_login
+        return cmd_agentify_login(args)
 
     parser.print_help()
     return 1

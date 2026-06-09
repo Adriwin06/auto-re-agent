@@ -139,6 +139,22 @@ class AgentifyProvider:
         conv.history.append(Message(role="assistant", content=text))
         return text
 
+    def warm_up(self, prompt: str = "Reply with the single word: ready.") -> str:
+        """Open the browser session and wait for sign-in, so later runs don't block.
+
+        Sends one trivial prompt to a dedicated ``<key_base>-login`` tab.  This
+        auto-creates the tab, opens the vendor's web UI, and pauses for any
+        login / CAPTCHA — exactly the interactive step we want to get out of the
+        way *before* an unattended ``reverse`` run.  The vendor login is cached
+        in Agentify's local browser profile and reused by later tabs.
+        """
+        self._ensure_started()
+        key = f"{self._key_base}-login"
+        try:
+            return self._run(self._query(prompt=prompt, key=key, prefix=None, ensure_ready=True))
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"agentify warm-up failed: {exc}") from exc
+
     def send(self, messages: list[Message], **kwargs: Any) -> str:
         """One-shot path for stateless callers: fresh tab, full transcript."""
         self._ensure_started()

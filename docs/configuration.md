@@ -102,6 +102,18 @@ llm:
 Agentify pauses and resumes automatically once you log in. The stable tab is created
 automatically — no manual GUI setup required.
 
+To get that interactive sign-in out of the way **before** an unattended `reverse` run, run it
+once on purpose:
+
+```bash
+re-agent agentify-login
+```
+
+This warms every `agentify` provider in your config (`llm`, `checker_llm`, and any `fallbacks`),
+deduped per vendor, by opening the browser and waiting for login. After that, `re-agent reverse`
+runs won't block on login (the session is cached in Agentify's local browser profile). It's
+optional — skipping it just means your first `reverse` run pauses for login the first time.
+
 **How it maps:** each re-agent conversation becomes one stable Agentify tab (`key`), so multi-round
 fixes continue the same chat; the system prompt is sent once as `promptPrefix`. Agentify is a good
 fit as a reverser, a separate `checker_llm`, or a `fallbacks` entry. See
