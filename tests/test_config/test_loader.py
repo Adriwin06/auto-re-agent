@@ -101,6 +101,28 @@ def test_checker_llm_none_by_default() -> None:
     assert load_config(None).checker_llm is None
 
 
+def test_litellm_tuning_fields_parsed(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+llm:
+  provider: anthropic
+  model: claude-opus-4-8
+  reasoning_effort: high
+  thinking:
+    type: enabled
+    budget_tokens: 4096
+  extra_params:
+    top_p: 0.95
+    seed: 7
+""",
+    )
+    config = load_config(path)
+    assert config.llm.reasoning_effort == "high"
+    assert config.llm.thinking == {"type": "enabled", "budget_tokens": 4096}
+    assert config.llm.extra_params == {"top_p": 0.95, "seed": 7}
+
+
 def test_checker_llm_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RE_AGENT_CHECKER_LLM_PROVIDER", "openai")
     monkeypatch.setenv("RE_AGENT_CHECKER_LLM_MODEL", "gpt-5.5")

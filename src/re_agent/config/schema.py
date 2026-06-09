@@ -39,6 +39,17 @@ class LLMConfig:
     max_tokens: int = 4096
     temperature: float = 0.0
     timeout_s: int = 1800
+    # --- LiteLLM (API tier) tuning, forwarded to litellm.completion() ---------
+    # Reasoning effort for o-series / GPT-5 / reasoning models ("minimal" |
+    # "low" | "medium" | "high").  LiteLLM also maps it onto other vendors.
+    reasoning_effort: str | None = None
+    # Anthropic-style extended thinking, e.g.
+    # {"type": "enabled", "budget_tokens": 4096}.
+    thinking: dict | None = None
+    # Escape hatch: any other litellm.completion() kwargs (top_p, seed, stop,
+    # presence_penalty, metadata, …).  Merged last, so it can override anything.
+    extra_params: dict = field(default_factory=dict)
+    # --- provider chaining / CLI overrides ------------------------------------
     # Ordered alternate providers tried, in order, when the primary raises a
     # transient error (rate-limit / 5xx / timeout).  See ``FallbackProvider``.
     fallbacks: list[LLMConfig] = field(default_factory=list)

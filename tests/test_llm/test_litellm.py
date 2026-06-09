@@ -84,6 +84,50 @@ def test_custom_llm_provider_omitted_when_none(fake_litellm: dict[str, Any]) -> 
     assert "custom_llm_provider" not in fake_litellm
 
 
+def test_reasoning_and_thinking_forwarded(fake_litellm: dict[str, Any]) -> None:
+    provider = LiteLLMProvider(
+        model="gpt-5.5",
+        reasoning_effort="high",
+        thinking={"type": "enabled", "budget_tokens": 2048},
+    )
+    provider.send([Message(role="user", content="hi")])
+    assert fake_litellm["reasoning_effort"] == "high"
+    assert fake_litellm["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+
+def test_reasoning_and_thinking_omitted_when_none(fake_litellm: dict[str, Any]) -> None:
+    LiteLLMProvider(model="gpt-5.5").send([Message(role="user", content="hi")])
+    assert "reasoning_effort" not in fake_litellm
+    assert "thinking" not in fake_litellm
+
+
+def test_extra_params_forwarded_and_override(fake_litellm: dict[str, Any]) -> None:
+    provider = LiteLLMProvider(
+        model="gpt-5.5",
+        max_tokens=100,
+        extra_params={"top_p": 0.9, "seed": 7, "max_tokens": 256},
+    )
+    provider.send([Message(role="user", content="hi")])
+    assert fake_litellm["top_p"] == 0.9
+    assert fake_litellm["seed"] == 7
+    # extra_params is merged last, so it overrides the named field.
+    assert fake_litellm["max_tokens"] == 256
+
+
+def test_registry_forwards_litellm_tuning() -> None:
+    provider = create_provider(
+        LLMConfig(
+            provider="anthropic",
+            model="claude-opus-4-8",
+            thinking={"type": "enabled", "budget_tokens": 4096},
+            extra_params={"top_p": 0.95},
+        )
+    )
+    assert isinstance(provider, LiteLLMProvider)
+    assert provider._thinking == {"type": "enabled", "budget_tokens": 4096}
+    assert provider._extra_params == {"top_p": 0.95}
+
+
 def test_registry_vendor_sets_custom_llm_provider() -> None:
     provider = create_provider(LLMConfig(provider="anthropic", model="claude-opus-4-8"))
     assert isinstance(provider, LLMProvider)

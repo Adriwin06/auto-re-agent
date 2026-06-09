@@ -119,4 +119,7 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
         max_tokens=config.max_tokens,
         temperature=config.temperature,
         base_url=config.base_url,
+        reasoning_effort=config.reasoning_effort,
+        thinking=config.thinking,
+        extra_params=config.extra_params,
     )

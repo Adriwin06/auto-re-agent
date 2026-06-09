@@ -33,7 +33,34 @@ llm:
   max_tokens: 4096
   temperature: 0.0
   timeout_s: 1800
+  # --- LiteLLM (API tier) tuning — ignored by CLI providers -----------------
+  reasoning_effort: null    # "minimal" | "low" | "medium" | "high" (reasoning models)
+  thinking: null            # Anthropic extended thinking, e.g. {type: enabled, budget_tokens: 4096}
+  extra_params: {}          # any other litellm.completion() kwargs (top_p, seed, stop, ...); merged last
 ```
+
+### Reasoning / thinking (LiteLLM)
+
+For the API tier, `reasoning_effort`, `thinking`, and the `extra_params` catch-all are forwarded
+straight to `litellm.completion()`. Set them per agent (on `llm` and/or `checker_llm`):
+
+```yaml
+llm:
+  provider: anthropic
+  model: claude-opus-4-8
+  thinking: { type: enabled, budget_tokens: 8000 }   # deep thinking for generation
+checker_llm:
+  provider: openai
+  model: gpt-5.5
+  reasoning_effort: low                              # cheap, fast review
+  extra_params: { top_p: 0.95, seed: 7 }
+```
+
+- `reasoning_effort` / `thinking` are omitted from the request when left `null`.
+- `extra_params` is merged **last**, so it overrides any value above it (including `max_tokens`).
+- These keys are **LiteLLM-only**. CLI providers (`claude-code` / `codex` / `antigravity`) ignore
+  them — control their effort natively instead (`MAX_THINKING_TOKENS` env for Claude Code;
+  `model_reasoning_effort` in `~/.codex/config.toml` for Codex).
 
 Notes:
 

@@ -33,6 +33,12 @@ class LiteLLMProvider:
         max_tokens: Maximum tokens in the response.
         temperature: Sampling temperature (``0.0`` = deterministic).
         base_url: Optional API base URL for OpenAI-compatible / self-hosted endpoints.
+        reasoning_effort: Reasoning effort for reasoning models ("minimal" |
+            "low" | "medium" | "high").  Omitted from the request when ``None``.
+        thinking: Anthropic-style extended-thinking config, e.g.
+            ``{"type": "enabled", "budget_tokens": 4096}``.  Omitted when ``None``.
+        extra_params: Any other ``litellm.completion()`` kwargs.  Merged last,
+            so it overrides the values above.
     """
 
     def __init__(
@@ -43,6 +49,9 @@ class LiteLLMProvider:
         max_tokens: int = 4096,
         temperature: float = 0.0,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
+        thinking: dict | None = None,
+        extra_params: dict | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
@@ -50,6 +59,9 @@ class LiteLLMProvider:
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._base_url = base_url
+        self._reasoning_effort = reasoning_effort
+        self._thinking = thinking
+        self._extra_params = dict(extra_params or {})
         self._conversations: dict[str, list[Message]] = {}
 
     # -- LLMProvider interface ------------------------------------------------
@@ -80,6 +92,13 @@ class LiteLLMProvider:
             completion_kwargs["api_key"] = self._api_key
         if self._base_url is not None:
             completion_kwargs["api_base"] = self._base_url
+        if self._reasoning_effort is not None:
+            completion_kwargs["reasoning_effort"] = self._reasoning_effort
+        if self._thinking is not None:
+            completion_kwargs["thinking"] = self._thinking
+
+        # Escape hatch merged last so it can override any value set above.
+        completion_kwargs.update(self._extra_params)
 
         response = litellm.completion(**completion_kwargs)
 
