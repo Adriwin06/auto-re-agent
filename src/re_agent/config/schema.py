@@ -56,6 +56,13 @@ class LLMConfig:
     # Agentify MCP launch command override.  ``None`` means "use the provider
     # default" (``npx -y @agentify/desktop mcp``).
     command: str | None = None
+    # --- CLI provider pass-through (claude-code / codex / antigravity) ---------
+    # Extra argv appended to the CLI invocation, e.g. ["-c", "model_reasoning_effort=high"]
+    # for codex.  Ignored by API-tier (LiteLLM) providers.
+    extra_args: list[str] = field(default_factory=list)
+    # Extra environment variables merged over the process env, e.g.
+    # {"MAX_THINKING_TOKENS": "10000"} for claude-code.  Ignored by API providers.
+    env: dict = field(default_factory=dict)
 
 
 @dataclass

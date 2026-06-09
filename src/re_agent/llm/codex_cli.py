@@ -1,6 +1,7 @@
 """Codex CLI-backed LLM provider using ChatGPT login credentials."""
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import uuid
@@ -18,10 +19,14 @@ class CodexCLIProvider:
         model: str = "gpt-5.5",
         timeout_s: int = 1800,
         codex_bin: str = "codex",
+        extra_args: list[str] | None = None,
+        env: dict | None = None,
     ) -> None:
         self._model = model
         self._timeout_s = timeout_s
         self._codex_bin = codex_bin
+        self._extra_args = list(extra_args or [])
+        self._env = dict(env or {})
         self._conversations: dict[str, list[Message]] = {}
 
     def send(self, messages: list[Message], **kwargs: Any) -> str:
@@ -30,6 +35,7 @@ class CodexCLIProvider:
         with tempfile.NamedTemporaryFile("r+", encoding="utf-8", delete=False) as tmp:
             out_path = Path(tmp.name)
 
+        run_env = {**os.environ, **self._env} if self._env else None
         try:
             proc = subprocess.run(
                 [
@@ -44,6 +50,7 @@ class CodexCLIProvider:
                     str(out_path),
                     "-m",
                     str(model),
+                    *self._extra_args,
                     prompt,
                 ],
                 stdout=subprocess.PIPE,
@@ -51,6 +58,7 @@ class CodexCLIProvider:
                 text=True,
                 timeout=self._timeout_s,
                 check=False,
+                env=run_env,
             )
             if proc.returncode != 0:
                 raise RuntimeError(

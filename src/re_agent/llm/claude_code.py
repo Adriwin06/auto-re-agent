@@ -28,10 +28,14 @@ class ClaudeCodeProvider:
         model: str | None = None,
         timeout_s: int = 1800,
         claude_bin: str = "claude",
+        extra_args: list[str] | None = None,
+        env: dict | None = None,
     ) -> None:
         self._model = model
         self._timeout_s = timeout_s
         self._claude_bin = claude_bin
+        self._extra_args = list(extra_args or [])
+        self._env = dict(env or {})
         self._conversations: dict[str, list[Message]] = {}
 
     def send(self, messages: list[Message], **kwargs: Any) -> str:
@@ -41,8 +45,9 @@ class ClaudeCodeProvider:
         args = [self._claude_bin, "--print", prompt]
         if model:
             args += ["--model", str(model)]
+        args += self._extra_args
 
-        returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s)
+        returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s, env=self._env)
         if returncode != 0:
             raise RuntimeError(
                 f"claude --print failed with exit code {returncode}\n{stderr or stdout}"

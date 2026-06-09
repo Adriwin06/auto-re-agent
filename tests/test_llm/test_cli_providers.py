@@ -17,9 +17,12 @@ from re_agent.llm.registry import create_provider
 def _patch_run(monkeypatch: pytest.MonkeyPatch, module: Any, result: tuple[int, str, str]) -> dict[str, Any]:
     captured: dict[str, Any] = {}
 
-    def fake_run(args: list[str], timeout_s: int = 45) -> tuple[int, str, str]:
+    def fake_run(
+        args: list[str], timeout_s: int = 45, env: dict | None = None
+    ) -> tuple[int, str, str]:
         captured["args"] = list(args)
         captured["timeout_s"] = timeout_s
+        captured["env"] = env
         return result
 
     monkeypatch.setattr(module, "run_cmd_split", fake_run)
@@ -61,6 +64,52 @@ def test_antigravity_nonzero_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_run(monkeypatch, antigravity_mod, (2, "", "nope"))
     with pytest.raises(RuntimeError, match="agy -p failed"):
         AntigravityProvider().send([Message(role="user", content="hi")])
+
+
+def test_claude_code_extra_args_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _patch_run(monkeypatch, claude_code_mod, (0, "ok", ""))
+    provider = ClaudeCodeProvider(extra_args=["--verbose"], env={"MAX_THINKING_TOKENS": "10000"})
+    provider.send([Message(role="user", content="hi")])
+    assert captured["args"][-1] == "--verbose"
+    assert captured["env"] == {"MAX_THINKING_TOKENS": "10000"}
+
+
+def test_antigravity_extra_args_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _patch_run(monkeypatch, antigravity_mod, (0, "ok", ""))
+    AntigravityProvider(extra_args=["--flag"], env={"FOO": "bar"}).send(
+        [Message(role="user", content="hi")]
+    )
+    assert "--flag" in captured["args"]
+    assert captured["env"] == {"FOO": "bar"}
+
+
+def test_codex_extra_args_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+
+    def fake_run(args: list[str], **kwargs: Any) -> _Proc:
+        captured["args"] = list(args)
+        captured["env"] = kwargs.get("env")
+        return _Proc()
+
+    from re_agent.llm import codex_cli as codex_mod
+
+    monkeypatch.setattr(codex_mod.subprocess, "run", fake_run)
+    # Avoid touching the real filesystem for the output-last-message read.
+    monkeypatch.setattr(codex_mod.Path, "read_text", lambda self, encoding="utf-8": "done")
+
+    provider = codex_mod.CodexCLIProvider(
+        extra_args=["-c", "model_reasoning_effort=high"], env={"BAZ": "1"}
+    )
+    out = provider.send([Message(role="user", content="hi")])
+    assert out == "done"
+    # extra_args land among the flags, immediately before the positional prompt.
+    args = captured["args"]
+    assert args[-3:-1] == ["-c", "model_reasoning_effort=high"]
+    assert captured["env"] is not None and captured["env"]["BAZ"] == "1"
 
 
 def test_registry_creates_cli_providers() -> None:

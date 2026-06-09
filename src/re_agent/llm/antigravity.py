@@ -25,17 +25,21 @@ class AntigravityProvider:
         self,
         timeout_s: int = 1800,
         agy_bin: str = "agy",
+        extra_args: list[str] | None = None,
+        env: dict | None = None,
     ) -> None:
         self._timeout_s = timeout_s
         self._agy_bin = agy_bin
+        self._extra_args = list(extra_args or [])
+        self._env = dict(env or {})
         self._conversations: dict[str, list[Message]] = {}
 
     def send(self, messages: list[Message], **kwargs: Any) -> str:
         prompt = self._render_messages(messages)
 
-        args = [self._agy_bin, "-p", prompt]
+        args = [self._agy_bin, "-p", prompt, *self._extra_args]
 
-        returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s)
+        returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s, env=self._env)
         if returncode != 0:
             raise RuntimeError(
                 f"agy -p failed with exit code {returncode}\n{stderr or stdout}"

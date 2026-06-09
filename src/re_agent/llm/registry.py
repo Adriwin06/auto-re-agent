@@ -76,6 +76,8 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
         return ClaudeCodeProvider(
             model=config.model or None,
             timeout_s=config.timeout_s,
+            extra_args=config.extra_args,
+            env=config.env,
         )
 
     if provider == "antigravity":
@@ -83,6 +85,8 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
 
         return AntigravityProvider(
             timeout_s=config.timeout_s,
+            extra_args=config.extra_args,
+            env=config.env,
         )
 
     if provider == "codex":
@@ -91,6 +95,8 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
         return CodexCLIProvider(
             model=config.model or "gpt-5.5",
             timeout_s=config.timeout_s,
+            extra_args=config.extra_args,
+            env=config.env,
         )
 
     # ------------------------------------------------------------------ #

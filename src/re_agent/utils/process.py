@@ -1,8 +1,18 @@
 """Subprocess execution utilities."""
 from __future__ import annotations
 
+import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+
+
+def _merged_env(env: Mapping[str, str] | None) -> dict[str, str] | None:
+    """Return ``os.environ`` overlaid with *env*, or ``None`` to inherit as-is."""
+    if not env:
+        return None
+    merged = dict(os.environ)
+    merged.update({str(k): str(v) for k, v in env.items()})
+    return merged
 
 
 def run_cmd(args: Sequence[str], timeout_s: int = 45) -> tuple[bool, str]:
@@ -33,12 +43,16 @@ def run_cmd(args: Sequence[str], timeout_s: int = 45) -> tuple[bool, str]:
 
 
 def run_cmd_split(
-    args: Sequence[str], timeout_s: int = 45
+    args: Sequence[str], timeout_s: int = 45, env: Mapping[str, str] | None = None
 ) -> tuple[int, str, str]:
     """Run a command and return ``(returncode, stdout, stderr)`` separately.
 
     Unlike :func:`run_cmd`, this keeps stdout and stderr in separate streams
     so callers can inspect error messages independently of normal output.
+
+    Args:
+        env: Extra environment variables overlaid on the current process
+            environment.  ``None``/empty inherits the environment unchanged.
 
     Returns ``(-1, "", error_message)`` on timeout or missing executable.
     """
@@ -49,6 +63,7 @@ def run_cmd_split(
             text=True,
             timeout=timeout_s,
             check=False,
+            env=_merged_env(env),
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as e:

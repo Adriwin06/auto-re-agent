@@ -59,8 +59,28 @@ checker_llm:
 - `reasoning_effort` / `thinking` are omitted from the request when left `null`.
 - `extra_params` is merged **last**, so it overrides any value above it (including `max_tokens`).
 - These keys are **LiteLLM-only**. CLI providers (`claude-code` / `codex` / `antigravity`) ignore
-  them — control their effort natively instead (`MAX_THINKING_TOKENS` env for Claude Code;
-  `model_reasoning_effort` in `~/.codex/config.toml` for Codex).
+  them — use `extra_args` / `env` below instead.
+
+### CLI provider pass-through (extra_args / env)
+
+For the CLI providers, `extra_args` is appended to the command line and `env` is overlaid on the
+process environment. This is how you set reasoning/thinking for them from `re-agent.yaml` instead
+of out-of-band:
+
+```yaml
+llm:
+  provider: claude-code
+  env: { MAX_THINKING_TOKENS: "12000" }              # Claude Code extended thinking
+
+checker_llm:
+  provider: codex
+  extra_args: ["-c", "model_reasoning_effort=low"]   # Codex reasoning effort (cheap reviewer)
+```
+
+- `extra_args` is inserted among the CLI flags (for codex, immediately before the prompt).
+- `env` is **merged over** the inherited environment, not a replacement.
+- Both are **CLI-only** and ignored by the API (LiteLLM) tier — use `reasoning_effort` / `thinking`
+  there.
 
 Notes:
 
