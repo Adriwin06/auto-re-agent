@@ -24,6 +24,7 @@ def reverse_class(
     llm: LLMProvider,
     session: Session | None = None,
     max_functions: int | None = None,
+    checker_llm: LLMProvider | None = None,
 ) -> list[ReversalResult]:
     """Reverse functions in a class one by one until done or limit reached.
 
@@ -31,9 +32,10 @@ def reverse_class(
         class_name: Target class name
         config: Full configuration
         backend: RE backend
-        llm: LLM provider
+        llm: LLM provider (reverser)
         session: Session for progress tracking
         max_functions: Override for max functions (defaults to config value)
+        checker_llm: Optional separate LLM provider for the checker agent
 
     Returns:
         List of ReversalResult for each attempted function
@@ -65,7 +67,9 @@ def reverse_class(
             file=sys.stderr,
         )
 
-        result = reverse_single(target, config, backend, llm, session, indexer=indexer)
+        result = reverse_single(
+            target, config, backend, llm, session, indexer=indexer, checker_llm=checker_llm
+        )
         results.append(result)
 
         status = "PASS" if result.success else "FAIL"

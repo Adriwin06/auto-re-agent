@@ -24,6 +24,7 @@ def reverse_single(
     session: Session | None = None,
     output_dir: Path | None = None,
     indexer: SourceIndexer | None = None,
+    checker_llm: LLMProvider | None = None,
 ) -> ReversalResult:
     """Reverse a single function: agent loop -> optional parity check -> record.
 
@@ -33,6 +34,8 @@ def reverse_single(
         indexer: Pre-built source indexer.  When running multiple functions
             in the same class, callers should build the indexer once and pass
             it here to avoid re-scanning the entire source tree each time.
+        checker_llm: LLM provider for the checker agent.  When ``None`` the
+            checker reuses ``llm`` (the reverser provider).
     """
     log_dir = Path(config.output.log_dir) if config.output.log_dir else None
 
@@ -40,7 +43,7 @@ def reverse_single(
         target=target,
         backend=backend,
         reverser_llm=llm,
-        checker_llm=llm,
+        checker_llm=checker_llm or llm,
         max_rounds=config.orchestrator.max_review_rounds,
         log_dir=log_dir,
         source_root=Path(config.project_profile.source_root),

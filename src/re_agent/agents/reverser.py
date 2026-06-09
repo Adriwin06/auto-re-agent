@@ -43,6 +43,10 @@ class ReverserAgent:
                 report_dir=report_dir,
             )
         self._conversation_id: str | None = None
+        # Stateless-provider fallback history (used when the provider does not
+        # support multi-turn conversations); seeded by reverse(), extended by fix().
+        self._history: list[Message] = []
+        self._system_prompt: str = ""
         self.last_prompt: str = ""
         self.last_response: str = ""
 
@@ -94,6 +98,7 @@ class ReverserAgent:
             self._conversation_id = self.llm.new_conversation(system_prompt)
 
         self.last_prompt = task_prompt
+        self._system_prompt = system_prompt
 
         if self._conversation_id:
             response = self.llm.resume(self._conversation_id, task_prompt)
@@ -103,6 +108,8 @@ class ReverserAgent:
                 Message(role="user", content=task_prompt),
             ]
             response = self.llm.send(messages)
+            # Seed the stateless history so subsequent fix() rounds retain context.
+            self._history = list(messages) + [Message(role="assistant", content=response)]
 
         self.last_response = response
         code = self._extract_code(response)
@@ -140,8 +147,12 @@ class ReverserAgent:
         if self._conversation_id:
             response = self.llm.resume(self._conversation_id, fix_prompt)
         else:
-            messages = [Message(role="user", content=fix_prompt)]
-            response = self.llm.send(messages)
+            # Stateless provider: resend the full history so the model still has
+            # the system prompt, original task, decompile, and prior code — not
+            # just the bare fix instructions.
+            self._history.append(Message(role="user", content=fix_prompt))
+            response = self.llm.send(list(self._history))
+            self._history.append(Message(role="assistant", content=response))
 
         self.last_response = response
         code = self._extract_code(response)

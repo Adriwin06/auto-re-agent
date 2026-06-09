@@ -37,3 +37,74 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     config = load_config(None)
     assert config.llm.provider == "openai"
     assert config.llm.model == "gpt-5.5"
+
+
+def _write_yaml(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "re-agent.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_fallbacks_built_as_llmconfig(tmp_path: Path) -> None:
+    from re_agent.config.schema import LLMConfig
+
+    path = _write_yaml(
+        tmp_path,
+        """
+llm:
+  provider: anthropic
+  model: claude-opus-4-8
+  fallbacks:
+    - provider: gemini
+      model: gemini-3.1-pro
+    - provider: openai
+      model: gpt-5.5
+""",
+    )
+    config = load_config(path)
+    assert len(config.llm.fallbacks) == 2
+    assert all(isinstance(fb, LLMConfig) for fb in config.llm.fallbacks)
+    assert config.llm.fallbacks[0].provider == "gemini"
+    assert config.llm.fallbacks[1].model == "gpt-5.5"
+
+
+def test_nested_fallbacks_depth_guard(tmp_path: Path) -> None:
+    # 6 levels of nesting exceeds _MAX_FALLBACK_DEPTH (5).
+    nested = "llm:\n  provider: a\n  fallbacks:\n"
+    indent = "    "
+    for i in range(6):
+        nested += f"{indent}- provider: p{i}\n{indent}  fallbacks:\n"
+        indent += "    "
+    path = _write_yaml(tmp_path, nested)
+    with pytest.raises(ValueError, match="depth"):
+        load_config(path)
+
+
+def test_checker_llm_built_when_present(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path,
+        """
+llm:
+  provider: anthropic
+checker_llm:
+  provider: gemini
+  model: gemini-3.1-flash
+""",
+    )
+    config = load_config(path)
+    assert config.checker_llm is not None
+    assert config.checker_llm.provider == "gemini"
+    assert config.checker_llm.model == "gemini-3.1-flash"
+
+
+def test_checker_llm_none_by_default() -> None:
+    assert load_config(None).checker_llm is None
+
+
+def test_checker_llm_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RE_AGENT_CHECKER_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("RE_AGENT_CHECKER_LLM_MODEL", "gpt-5.5")
+    config = load_config(None)
+    assert config.checker_llm is not None
+    assert config.checker_llm.provider == "openai"
+    assert config.checker_llm.model == "gpt-5.5"

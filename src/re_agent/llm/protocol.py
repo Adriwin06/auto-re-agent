@@ -18,6 +18,18 @@ class Message:
     content: str
 
 
+def render_messages(messages: list[Message]) -> str:
+    """Flatten a message list into a single ``[ROLE]\\n<content>`` prompt string.
+
+    Used by providers that take a single prompt (CLI tools, MCP servers) rather
+    than a structured message array.
+    """
+    parts: list[str] = []
+    for msg in messages:
+        parts.append(f"[{msg.role.upper()}]\n{msg.content.strip()}")
+    return "\n\n".join(parts).strip()
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Protocol that all LLM provider implementations must satisfy."""

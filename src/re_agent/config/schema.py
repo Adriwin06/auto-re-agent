@@ -39,6 +39,12 @@ class LLMConfig:
     max_tokens: int = 4096
     temperature: float = 0.0
     timeout_s: int = 1800
+    # Ordered alternate providers tried, in order, when the primary raises a
+    # transient error (rate-limit / 5xx / timeout).  See ``FallbackProvider``.
+    fallbacks: list[LLMConfig] = field(default_factory=list)
+    # Agentify MCP launch command override.  ``None`` means "use the provider
+    # default" (``npx -y @agentify/desktop mcp``).
+    command: str | None = None
 
 
 @dataclass
@@ -90,6 +96,9 @@ class ReAgentConfig:
 
     project_profile: ProjectProfile = field(default_factory=ProjectProfile)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    # Optional independent LLM for the checker/review agent.  When ``None`` the
+    # checker reuses ``llm``.
+    checker_llm: LLMConfig | None = None
     backend: BackendConfig = field(default_factory=BackendConfig)
     parity: ParityConfig = field(default_factory=ParityConfig)
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)

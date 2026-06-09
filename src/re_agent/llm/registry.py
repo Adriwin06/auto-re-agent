@@ -15,8 +15,8 @@ from __future__ import annotations
 from re_agent.config.schema import LLMConfig
 from re_agent.llm.protocol import LLMProvider
 
-# CLI providers that bypass LiteLLM entirely.
-CLI_PROVIDERS: tuple[str, ...] = ("codex", "claude-code", "antigravity")
+# CLI / non-LiteLLM providers that bypass LiteLLM entirely.
+CLI_PROVIDERS: tuple[str, ...] = ("codex", "claude-code", "antigravity", "agentify")
 
 
 def _litellm_provider_names() -> set[str]:
@@ -31,6 +31,10 @@ def _litellm_provider_names() -> set[str]:
 def create_provider(config: LLMConfig) -> LLMProvider:
     """Instantiate an LLM provider from a configuration object.
 
+    If ``config.fallbacks`` is non-empty, the base provider is wrapped in a
+    :class:`~re_agent.llm.fallback.FallbackProvider` that fails over to each
+    fallback (recursively built) on transient errors.
+
     Args:
         config: The LLM configuration specifying provider type, model,
             API key, and other parameters.
@@ -42,7 +46,29 @@ def create_provider(config: LLMConfig) -> LLMProvider:
         ValueError: If ``config.provider`` is neither a CLI provider, the
             ``litellm`` escape hatch, nor a known LiteLLM vendor name.
     """
+    base = _create_base_provider(config)
+
+    if config.fallbacks:
+        from re_agent.llm.fallback import FallbackProvider
+
+        chain = [base] + [create_provider(fb) for fb in config.fallbacks]
+        return FallbackProvider(chain)
+
+    return base
+
+
+def _create_base_provider(config: LLMConfig) -> LLMProvider:
+    """Build the provider named by ``config.provider`` (without fallback wrapping)."""
     provider = config.provider
+
+    if provider == "agentify":
+        from re_agent.llm.agentify import AgentifyProvider
+
+        return AgentifyProvider(
+            model=config.model or None,
+            command=config.command,
+            timeout_s=config.timeout_s,
+        )
 
     if provider == "claude-code":
         from re_agent.llm.claude_code import ClaudeCodeProvider

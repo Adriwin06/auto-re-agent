@@ -54,6 +54,10 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         ("RE_AGENT_LLM_API_KEY", ["llm", "api_key"], str),
         ("RE_AGENT_LLM_MODEL", ["llm", "model"], str),
         ("RE_AGENT_LLM_BASE_URL", ["llm", "base_url"], str),
+        ("RE_AGENT_CHECKER_LLM_PROVIDER", ["checker_llm", "provider"], str),
+        ("RE_AGENT_CHECKER_LLM_API_KEY", ["checker_llm", "api_key"], str),
+        ("RE_AGENT_CHECKER_LLM_MODEL", ["checker_llm", "model"], str),
+        ("RE_AGENT_CHECKER_LLM_BASE_URL", ["checker_llm", "base_url"], str),
         ("RE_AGENT_BACKEND_CLI_PATH", ["backend", "cli_path"], str),
         ("RE_AGENT_BACKEND_TIMEOUT", ["backend", "timeout_s"], int),
     ]
@@ -137,8 +141,37 @@ def _build_project_profile(data: dict[str, Any]) -> ProjectProfile:
     return _build_with_coercion(ProjectProfile, data)
 
 
-def _build_llm_config(data: dict[str, Any]) -> LLMConfig:
-    return _build_with_coercion(LLMConfig, data)
+# Cap on how deeply nested fallback chains may go, to avoid pathological configs
+# (a fallback whose fallback has fallbacks ...).  Most chains are 1-2 deep.
+_MAX_FALLBACK_DEPTH = 5
+
+
+def _build_llm_config(data: dict[str, Any], _depth: int = 0) -> LLMConfig:
+    """Build an LLMConfig, recursively constructing any nested ``fallbacks``.
+
+    ``_build_with_coercion`` treats ``fallbacks`` as a plain known field and
+    would leave it as a list of raw dicts, so we pop and build it explicitly
+    here before delegating the scalar fields.
+    """
+    rest = dict(data)
+    raw_fallbacks = rest.pop("fallbacks", None)
+
+    config = _build_with_coercion(LLMConfig, rest)
+
+    if raw_fallbacks:
+        if not isinstance(raw_fallbacks, list):
+            raise ValueError(
+                f"'fallbacks' must be a list of LLM configs, got {type(raw_fallbacks).__name__}"
+            )
+        if _depth >= _MAX_FALLBACK_DEPTH:
+            raise ValueError(
+                f"LLM fallback nesting exceeds the maximum depth of {_MAX_FALLBACK_DEPTH}"
+            )
+        config.fallbacks = [
+            _build_llm_config(item, _depth + 1) for item in raw_fallbacks
+        ]
+
+    return config
 
 
 def _build_backend_config(data: dict[str, Any]) -> BackendConfig:
@@ -159,9 +192,13 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
 
 def _build_config(raw: dict[str, Any]) -> ReAgentConfig:
     """Build a ReAgentConfig from a raw dict."""
+    checker_raw = raw.get("checker_llm")
+    checker_llm = _build_llm_config(checker_raw) if checker_raw else None
+
     return ReAgentConfig(
         project_profile=_build_project_profile(raw.get("project_profile", {})),
         llm=_build_llm_config(raw.get("llm", {})),
+        checker_llm=checker_llm,
         backend=_build_backend_config(raw.get("backend", {})),
         parity=_build_parity_config(raw.get("parity", {})),
         orchestrator=_build_orchestrator_config(raw.get("orchestrator", {})),
