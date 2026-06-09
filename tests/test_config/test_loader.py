@@ -21,7 +21,7 @@ def test_load_default_config() -> None:
 def test_load_from_yaml(sample_config_path: Path) -> None:
     config = load_config(sample_config_path)
     assert config.project_profile.stub_call_prefix == "plugin::Call"
-    assert config.llm.model == "claude-sonnet-4-5-20250929"
+    assert config.llm.model == "claude-opus-4-8"
     assert config.parity.call_count_warn_diff == 3
 
 
@@ -33,7 +33,7 @@ def test_cli_overrides() -> None:
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RE_AGENT_LLM_PROVIDER", "openai")
-    monkeypatch.setenv("RE_AGENT_LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("RE_AGENT_LLM_MODEL", "gpt-5.5")
     config = load_config(None)
     assert config.llm.provider == "openai"
-    assert config.llm.model == "gpt-4o"
+    assert config.llm.model == "gpt-5.5"

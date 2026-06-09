@@ -77,8 +77,8 @@ re-agent uses a layered configuration system (highest priority first): CLI flags
 
 ```yaml
 llm:
-  provider: claude           # claude | openai | openai-compat | codex
-  model: claude-sonnet-4-5-20250929
+  provider: litellm          # litellm | claude | openai | openai-compat | claude-code | antigravity | codex
+  model: claude-opus-4-8
   # api_key: set via RE_AGENT_LLM_API_KEY env var
   timeout_s: 1800
 

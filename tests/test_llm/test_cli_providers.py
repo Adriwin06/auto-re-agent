@@ -28,12 +28,12 @@ def _patch_run(monkeypatch: pytest.MonkeyPatch, module: Any, result: tuple[int, 
 
 def test_claude_code_argv_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _patch_run(monkeypatch, claude_code_mod, (0, "the answer", ""))
-    provider = ClaudeCodeProvider(model="claude-opus-4-6", timeout_s=120)
+    provider = ClaudeCodeProvider(model="claude-opus-4-8", timeout_s=120)
     out = provider.send([Message(role="user", content="hi")])
     assert out == "the answer"
     assert captured["args"][:2] == ["claude", "--print"]
     assert "--model" in captured["args"]
-    assert captured["args"][captured["args"].index("--model") + 1] == "claude-opus-4-6"
+    assert captured["args"][captured["args"].index("--model") + 1] == "claude-opus-4-8"
     assert captured["timeout_s"] == 120
 
 

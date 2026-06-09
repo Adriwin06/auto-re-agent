@@ -50,5 +50,5 @@ def test_mock_provider_send() -> None:
 
 
 def test_registry_creates_codex_provider() -> None:
-    provider = create_provider(LLMConfig(provider="codex", model="gpt-5.4"))
+    provider = create_provider(LLMConfig(provider="codex", model="gpt-5.5"))
     assert provider.supports_conversations

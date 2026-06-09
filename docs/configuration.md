@@ -21,8 +21,8 @@ CLI flags > Environment variables > YAML config > Defaults
 
 ```yaml
 llm:
-  provider: "claude"        # claude | openai | openai-compat | codex
-  model: "claude-sonnet-4-5-20250929"
+  provider: "litellm"       # litellm | claude | openai | openai-compat | claude-code | antigravity | codex
+  model: "claude-opus-4-8"
   api_key: null
   base_url: null
   max_tokens: 4096

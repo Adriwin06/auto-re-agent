@@ -3,8 +3,8 @@
 A single provider that wraps :func:`litellm.completion`, so any backend LiteLLM
 supports (Anthropic, OpenAI, Gemini, OpenRouter, OpenAI-compatible endpoints, …)
 can be reached through one code path.  The ``model`` string selects the backend,
-e.g. ``"claude-opus-4-6"``, ``"gemini/gemini-2.5-pro"``,
-``"openrouter/anthropic/claude-opus-4"``, ``"gpt-4o"``.
+e.g. ``"claude-opus-4-8"``, ``"gemini/gemini-3.1-pro"``,
+``"openrouter/anthropic/claude-opus-4-8"``, ``"gpt-5.5"``.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class LiteLLMProvider:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "claude-opus-4-6",
+        model: str = "claude-opus-4-8",
         max_tokens: int = 4096,
         temperature: float = 0.0,
         base_url: str | None = None,

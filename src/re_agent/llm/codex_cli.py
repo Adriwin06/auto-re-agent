@@ -15,7 +15,7 @@ class CodexCLIProvider:
 
     def __init__(
         self,
-        model: str = "gpt-5.4",
+        model: str = "gpt-5.5",
         timeout_s: int = 1800,
         codex_bin: str = "codex",
     ) -> None:

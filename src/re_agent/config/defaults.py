@@ -29,7 +29,7 @@ llm:
   # backend; auth is read from the matching env var (ANTHROPIC_API_KEY,
   # OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, ...).
   provider: "litellm"
-  model: "claude-opus-4-6"   # or "gpt-4o", "gemini/gemini-2.5-pro", "openrouter/anthropic/claude-opus-4"
+  model: "claude-opus-4-8"   # or "gpt-5.5", "gemini/gemini-3.1-pro", "openrouter/anthropic/claude-opus-4-8"
   # Legacy aliases (route through LiteLLM): "claude", "openai", "openai-compat".
   # CLI providers (no API key needed):
   #   provider: "claude-code"   # uses ~/.claude/ auth; model -> --model

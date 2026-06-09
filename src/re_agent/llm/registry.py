@@ -71,7 +71,7 @@ def create_provider(config: LLMConfig) -> LLMProvider:
         from re_agent.llm.codex_cli import CodexCLIProvider
 
         return CodexCLIProvider(
-            model=config.model or "gpt-5.4",
+            model=config.model or "gpt-5.5",
             timeout_s=config.timeout_s,
         )
 

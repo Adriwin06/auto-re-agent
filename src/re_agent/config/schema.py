@@ -32,7 +32,7 @@ class LLMConfig:
     """LLM provider configuration."""
 
     provider: str = "claude"
-    model: str = "claude-sonnet-4-5-20250929"
+    model: str = "claude-opus-4-8"
     api_key: str | None = None
     base_url: str | None = None
     max_tokens: int = 4096

@@ -44,7 +44,7 @@ def fake_litellm(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 def test_send_returns_text_and_passes_system(fake_litellm: dict[str, Any]) -> None:
-    provider = LiteLLMProvider(model="gpt-4o", max_tokens=128, temperature=0.0)
+    provider = LiteLLMProvider(model="gpt-5.5", max_tokens=128, temperature=0.0)
     out = provider.send(
         [
             Message(role="system", content="be terse"),
@@ -52,7 +52,7 @@ def test_send_returns_text_and_passes_system(fake_litellm: dict[str, Any]) -> No
         ]
     )
     assert out == "hello from litellm"
-    assert fake_litellm["model"] == "gpt-4o"
+    assert fake_litellm["model"] == "gpt-5.5"
     assert fake_litellm["max_tokens"] == 128
     # System message is forwarded verbatim as a role:system message.
     assert fake_litellm["messages"][0] == {"role": "system", "content": "be terse"}
@@ -66,13 +66,13 @@ def test_base_url_maps_to_api_base(fake_litellm: dict[str, Any]) -> None:
 
 
 def test_kwargs_override_model(fake_litellm: dict[str, Any]) -> None:
-    provider = LiteLLMProvider(model="gpt-4o")
-    provider.send([Message(role="user", content="ping")], model="claude-opus-4-6")
-    assert fake_litellm["model"] == "claude-opus-4-6"
+    provider = LiteLLMProvider(model="gpt-5.5")
+    provider.send([Message(role="user", content="ping")], model="claude-opus-4-8")
+    assert fake_litellm["model"] == "claude-opus-4-8"
 
 
 def test_registry_litellm_satisfies_protocol() -> None:
-    provider = create_provider(LLMConfig(provider="litellm", model="gpt-4o"))
+    provider = create_provider(LLMConfig(provider="litellm", model="gpt-5.5"))
     assert isinstance(provider, LLMProvider)
     assert provider.supports_conversations
 
@@ -80,10 +80,10 @@ def test_registry_litellm_satisfies_protocol() -> None:
 def test_registry_claude_alias_normalizes_model() -> None:
     # Construction is offline (litellm is imported lazily inside send()).
     provider = create_provider(
-        LLMConfig(provider="claude", model="claude-sonnet-4-5-20250929")
+        LLMConfig(provider="claude", model="claude-opus-4-8")
     )
     assert isinstance(provider, LiteLLMProvider)
-    assert provider._model == "anthropic/claude-sonnet-4-5-20250929"
+    assert provider._model == "anthropic/claude-opus-4-8"
 
 
 def test_registry_openai_compat_alias_prefixes_and_keeps_base_url() -> None:
@@ -96,9 +96,9 @@ def test_registry_openai_compat_alias_prefixes_and_keeps_base_url() -> None:
 
 
 def test_registry_openai_alias_passes_model_through() -> None:
-    provider = create_provider(LLMConfig(provider="openai", model="gpt-4o"))
+    provider = create_provider(LLMConfig(provider="openai", model="gpt-5.5"))
     assert isinstance(provider, LiteLLMProvider)
-    assert provider._model == "gpt-4o"
+    assert provider._model == "gpt-5.5"
 
 
 def test_registry_unknown_provider_raises() -> None:
