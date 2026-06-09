@@ -29,12 +29,28 @@ class SourceContextBuilder:
         self.report_dir = report_dir
         self.max_chars = max_chars
 
+        from re_agent.parity.leaked_indexer import LeakedSourceIndexer
+        leaked_path = Path(profile.leaked_source_root)
+        if not leaked_path.is_absolute():
+            leaked_path = source_root.parent / leaked_path
+        self.leaked_indexer = LeakedSourceIndexer(leaked_path)
+
     def build(self, target: FunctionTarget) -> str:
         sections: list[str] = []
 
         header = self._find_class_header(target.class_name)
         if header:
             sections.append("Class header:\n" + header)
+
+        # Retrieve leaked source code context
+        if target.class_name and target.function_name:
+            leaked_func = self.leaked_indexer.find_function(target.class_name, target.function_name)
+            if leaked_func:
+                sections.append(f"Leaked Source Reference for {target.class_name}::{target.function_name}:\n```cpp\n{leaked_func}\n```")
+            else:
+                leaked_class = self.leaked_indexer.find_class_definition(target.class_name)
+                if leaked_class:
+                    sections.append(f"Leaked Class Definition for {target.class_name}:\n```cpp\n{leaked_class}\n```")
 
         siblings = self._find_sibling_methods(target)
         if siblings:

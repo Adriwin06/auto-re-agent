@@ -51,6 +51,7 @@ def reverse_single(
         objective_verifier_enabled=config.orchestrator.objective_verifier_enabled,
         objective_call_count_tolerance=config.orchestrator.objective_call_count_tolerance,
         objective_control_flow_tolerance=config.orchestrator.objective_control_flow_tolerance,
+        ida_bin=config.backend.ida_bin,
     )
 
     # Write generated code to a file so users don't have to dig through logs

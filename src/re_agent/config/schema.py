@@ -21,6 +21,7 @@ class ProjectProfile:
     stub_call_prefix: str = "plugin::Call"
     class_macro: str = "RH_ScopedClass"
     source_root: str = "source/game_sa"
+    leaked_source_root: str = "BrnEntityModuleUnity/BrnEntityModuleUnity-split-v1"
     source_extensions: list[str] = field(default_factory=lambda: [
         ".cpp", ".h", ".hpp",
     ])
@@ -47,6 +48,7 @@ class BackendConfig:
     type: str = "ghidra-bridge"
     cli_path: str = "ghidra"
     timeout_s: int = 45
+    ida_bin: str | None = None
 
 
 @dataclass

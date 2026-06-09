@@ -17,7 +17,7 @@ from re_agent.core.models import (
     Verdict,
 )
 from re_agent.core.session import Session
-from re_agent.llm.protocol import LLMProvider
+from re_agent.llm.protocol import LLMProvider, Message
 from re_agent.parity.source_indexer import SourceIndexer
 from re_agent.verification.objective import verify_candidate
 
@@ -37,6 +37,7 @@ def run_fix_loop(
     objective_verifier_enabled: bool = True,
     objective_call_count_tolerance: int = 3,
     objective_control_flow_tolerance: int = 2,
+    ida_bin: str | None = None,
 ) -> ReversalResult:
     """Run the reverser->checker->fix loop up to max_rounds.
 
@@ -87,6 +88,36 @@ def run_fix_loop(
                 target=target,
                 objective_findings=last_objective_verdict.findings if last_objective_verdict else None,
             )
+
+        # Intercept IDA decompile request if LLM requested it
+        if reverser.last_response and "[REQUEST_IDA_DECOMPILE]" in reverser.last_response:
+            print(f"[LOOP] LLM requested IDA decompilation for 0x{target.address}.")
+            from re_agent.backend.ida_fallback import IDAFallbackManager
+            mgr = IDAFallbackManager(ida_bin=ida_bin)
+            pseudocode = mgr.decompile(target.address)
+            if pseudocode:
+                msg = (
+                    f"Here is the pseudocode from the IDA Pro Hex-Rays decompiler for address 0x{target.address}:\n"
+                    f"```cpp\n{pseudocode}\n```\n"
+                    "Please rewrite and output the C++ function using this decompile."
+                )
+                if reverser._conversation_id:
+                    response = reverser.llm.resume(reverser._conversation_id, msg)
+                else:
+                    messages = [
+                        Message(role="system", content=reverser.last_prompt),
+                        Message(role="user", content=reverser.last_prompt),
+                        Message(role="assistant", content=reverser.last_response),
+                        Message(role="user", content=msg),
+                    ]
+                    response = reverser.llm.send(messages)
+                
+                reverser.last_response = response
+                code = reverser._extract_code(response)
+                tag = reverser._extract_tag(response)
+                print(f"[LOOP] IDA decompile successfully injected and C++ code regenerated.")
+            else:
+                print(f"[LOOP] Warning: IDA decompilation failed or was not configured. Continuing with current code.")
 
         if log_dir:
             log_entry = {
