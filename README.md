@@ -19,7 +19,8 @@ re-agent reverse --class CTrain
     │   ├── Context Gatherer (decompile + xrefs + structs + source retrieval)
     │   │
     │   ├── Agent Loop (reverser → checker → fix, max N rounds)
-    │   │   ├── LLM Providers: Claude | OpenAI-compatible APIs | Codex CLI
+    │   │   ├── LLM Providers: LiteLLM vendors (Anthropic/OpenAI/Gemini/…) | claude-code | codex | antigravity | agentify
+    │   │   ├── Separate reverser (`llm`) and checker (`checker_llm`) models; ordered fallback chains
     │   │   └── Prompt Templates (customizable .md files)
     │   │
     │   ├── Objective Verifier (call-count + control-flow sanity checks)
@@ -39,15 +40,18 @@ re-agent reverse --class CTrain
 
 - Python 3.10+
 - [ghidra-ai-bridge](https://github.com/Dryxio/ghidra-ai-bridge) — re-agent uses this as its backend to decompile functions, fetch xrefs, read structs/enums, and query Ghidra. Install it and point it at your Ghidra project before running `re-agent reverse`.
-- One supported LLM setup:
-  - `ANTHROPIC_API_KEY` for Claude
-  - `OPENAI_API_KEY` for OpenAI-compatible APIs
-  - a local `codex` CLI login for the Codex provider
+- One supported LLM setup (any of):
+  - An API key for a LiteLLM vendor: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, … (set `base_url` for OpenAI-compatible endpoints)
+  - A logged-in CLI: `claude-code` (`~/.claude/`), `codex` (ChatGPT login), or `antigravity` (`agy`, Google sign-in) — no API key
+  - `agentify` — drives a logged-in browser AI session via the Agentify Desktop MCP server (needs Node 20+ and the `agentify` extra)
 
 ## Installation
 
 ```bash
 pip install re-agent
+# optional extras:
+#   pip install "re-agent[agentify]"   # Agentify (MCP) browser-session provider
+#   pip install "re-agent[ghidra-bridge]"
 ```
 
 ## Quick Start
@@ -76,13 +80,23 @@ re-agent status
 re-agent uses a layered configuration system (highest priority first): CLI flags > environment variables (`RE_AGENT_*`) > `re-agent.yaml` > defaults.
 
 ```yaml
-llm:
+llm:                         # the reverser (generation) model
   provider: anthropic        # any LiteLLM vendor (anthropic | openai | gemini | ollama | mistral | openrouter | ...)
-                             # or a CLI provider: claude-code | antigravity | codex
+                             # or a CLI provider: claude-code | antigravity | codex | agentify
                              # or 'litellm' to let `model` carry the full route
-  model: claude-opus-4-8
+  model: claude-opus-4-8     # null = let the provider pick its own default
   # api_key: set via RE_AGENT_LLM_API_KEY env var
   timeout_s: 1800
+  # API-tier tuning: reasoning_effort / thinking / extra_params
+  # CLI-tier tuning: extra_args / env  (e.g. env: {MAX_THINKING_TOKENS: "10000"})
+  # Ordered fallback chain, tried on transient errors (full history replayed on switch):
+  fallbacks:
+    - { provider: codex, model: gpt-5.5 }
+    - { provider: agentify, model: chatgpt }
+
+checker_llm:                 # optional separate checker (review) model; reuses `llm` when omitted
+  provider: agentify
+  model: chatgpt
 
 backend:
   type: ghidra-bridge
@@ -108,6 +122,7 @@ See [docs/configuration.md](docs/configuration.md) for all options.
 | Command | Description |
 |---------|-------------|
 | `re-agent init` | Generate `re-agent.yaml` config file |
+| `re-agent agentify-login` | Pre-warm Agentify browser sessions (one-time sign-in) |
 | `re-agent reverse --address ADDR` | Reverse a single function |
 | `re-agent reverse --class CLASS` | Reverse all functions in a class |
 | `re-agent reverse --dry-run` | Show what would be reversed |
@@ -118,9 +133,21 @@ See [docs/configuration.md](docs/configuration.md) for all options.
 
 ## LLM Providers
 
-- **Claude** (Anthropic SDK) — set `ANTHROPIC_API_KEY`
-- **OpenAI / OpenAI-compatible** — set `OPENAI_API_KEY`, optionally set `base_url`
-- **Codex CLI** — uses local `codex exec` with ChatGPT login credentials; no API key required
+API providers all go through **LiteLLM** — set `provider` to the vendor name and `model` to the bare id:
+
+- **Anthropic / OpenAI / Gemini / Ollama / Mistral / OpenRouter / …** — set the matching env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …); use `provider: openai` + `base_url` for OpenAI-compatible endpoints, or `provider: litellm` to let `model` carry the full route.
+- API-tier reasoning/thinking is set per agent via `reasoning_effort`, `thinking`, and `extra_params`.
+
+CLI providers shell out to a local tool and need **no API key**:
+
+- **claude-code** — `claude --print` (`~/.claude/` auth); thinking via `env: {MAX_THINKING_TOKENS: …}`
+- **codex** — `codex exec` (ChatGPT login); reasoning via `extra_args: ["-c", "model_reasoning_effort=high"]`
+- **antigravity** — `agy -p` (Google sign-in); model via `--model`
+- **agentify** — drives a logged-in ChatGPT/Claude/Gemini/Perplexity/Grok/AI-Studio **browser session** through the Agentify Desktop MCP server (`npx -y @agentify/desktop mcp`). `model` is a vendor hint (`chatgpt`, `claude`, …). Install the `agentify` extra and run `re-agent agentify-login` once to sign in.
+
+**Per-role + resilience:** `llm` is the reverser and `checker_llm` (optional) the checker; either may
+declare an ordered `fallbacks:` list that fails over on transient errors (rate-limit / 5xx / timeout),
+replaying full conversation history on each switch. See [docs/configuration.md](docs/configuration.md).
 
 ## Parity Engine
 
