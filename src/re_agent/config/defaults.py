@@ -25,10 +25,18 @@ project_profile:
   hooks_csv: "docs/hooks.csv"
 
 llm:
-  provider: "claude"
-  model: "claude-sonnet-4-5-20250929"
+  # API providers are served through LiteLLM. The model string selects the
+  # backend; auth is read from the matching env var (ANTHROPIC_API_KEY,
+  # OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, ...).
+  provider: "litellm"
+  model: "claude-opus-4-6"   # or "gpt-4o", "gemini/gemini-2.5-pro", "openrouter/anthropic/claude-opus-4"
+  # Legacy aliases (route through LiteLLM): "claude", "openai", "openai-compat".
+  # CLI providers (no API key needed):
+  #   provider: "claude-code"   # uses ~/.claude/ auth; model -> --model
+  #   provider: "antigravity"   # uses Google Sign-In; requires `agy` on PATH
+  #   provider: "codex"         # uses ChatGPT login
   # api_key: null  # Set via RE_AGENT_LLM_API_KEY env var
-  # base_url: null  # Set via RE_AGENT_LLM_BASE_URL env var
+  # base_url: null  # Set via RE_AGENT_LLM_BASE_URL env var (api_base for OpenAI-compatible endpoints)
   max_tokens: 4096
   temperature: 0.0
   timeout_s: 1800
