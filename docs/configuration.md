@@ -21,7 +21,8 @@ CLI flags > Environment variables > YAML config > Defaults
 
 ```yaml
 llm:
-  provider: "litellm"       # litellm | claude | openai | openai-compat | claude-code | antigravity | codex
+  provider: "anthropic"     # any LiteLLM vendor (anthropic|openai|gemini|ollama|mistral|openrouter|...),
+                            # a CLI provider (claude-code|antigravity|codex), or 'litellm' (model carries the route)
   model: "claude-opus-4-8"
   api_key: null
   base_url: null
@@ -32,9 +33,10 @@ llm:
 
 Notes:
 
-- `claude` uses the Anthropic SDK and typically reads `ANTHROPIC_API_KEY`
-- `openai` and `openai-compat` use the OpenAI-compatible chat completions provider and typically read `OPENAI_API_KEY`
-- `codex` uses the local `codex` CLI and ChatGPT login credentials instead of an API key
+- API providers go through LiteLLM: set `provider` to the LiteLLM vendor name (`anthropic`, `openai`, `gemini`, `ollama`, `mistral`, `openrouter`, …) and `model` to the bare id. Auth is read from the matching env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …)
+- For an OpenAI-compatible / self-hosted endpoint, use `provider: openai` plus `base_url`
+- `provider: litellm` is an escape hatch — `model` then carries the full route itself (e.g. `openrouter/anthropic/claude-opus-4-8`)
+- CLI providers do not use LiteLLM and need no API key: `claude-code` (`~/.claude/`), `antigravity` (Google Sign-In, needs `agy`), `codex` (ChatGPT login)
 
 ## Project Profile
 

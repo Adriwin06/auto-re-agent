@@ -77,7 +77,9 @@ re-agent uses a layered configuration system (highest priority first): CLI flags
 
 ```yaml
 llm:
-  provider: litellm          # litellm | claude | openai | openai-compat | claude-code | antigravity | codex
+  provider: anthropic        # any LiteLLM vendor (anthropic | openai | gemini | ollama | mistral | openrouter | ...)
+                             # or a CLI provider: claude-code | antigravity | codex
+                             # or 'litellm' to let `model` carry the full route
   model: claude-opus-4-8
   # api_key: set via RE_AGENT_LLM_API_KEY env var
   timeout_s: 1800

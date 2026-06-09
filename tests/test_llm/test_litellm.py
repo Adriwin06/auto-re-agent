@@ -1,4 +1,4 @@
-"""Tests for the LiteLLM-backed provider and its registry aliases."""
+"""Tests for the LiteLLM-backed provider and its registry wiring."""
 from __future__ import annotations
 
 import sys
@@ -71,36 +71,45 @@ def test_kwargs_override_model(fake_litellm: dict[str, Any]) -> None:
     assert fake_litellm["model"] == "claude-opus-4-8"
 
 
-def test_registry_litellm_satisfies_protocol() -> None:
-    provider = create_provider(LLMConfig(provider="litellm", model="gpt-5.5"))
+def test_custom_llm_provider_forwarded(fake_litellm: dict[str, Any]) -> None:
+    provider = LiteLLMProvider(model="claude-opus-4-8", custom_llm_provider="anthropic")
+    provider.send([Message(role="user", content="hi")])
+    assert fake_litellm["model"] == "claude-opus-4-8"
+    assert fake_litellm["custom_llm_provider"] == "anthropic"
+
+
+def test_custom_llm_provider_omitted_when_none(fake_litellm: dict[str, Any]) -> None:
+    provider = LiteLLMProvider(model="openrouter/anthropic/claude-opus-4-8")
+    provider.send([Message(role="user", content="hi")])
+    assert "custom_llm_provider" not in fake_litellm
+
+
+def test_registry_vendor_sets_custom_llm_provider() -> None:
+    provider = create_provider(LLMConfig(provider="anthropic", model="claude-opus-4-8"))
     assert isinstance(provider, LLMProvider)
-    assert provider.supports_conversations
+    assert isinstance(provider, LiteLLMProvider)
+    assert provider._custom_llm_provider == "anthropic"
+    assert provider._model == "claude-opus-4-8"  # bare id, no munging
 
 
-def test_registry_claude_alias_normalizes_model() -> None:
-    # Construction is offline (litellm is imported lazily inside send()).
+def test_registry_openai_with_base_url() -> None:
     provider = create_provider(
-        LLMConfig(provider="claude", model="claude-opus-4-8")
+        LLMConfig(provider="openai", model="my-model", base_url="http://x/v1")
     )
     assert isinstance(provider, LiteLLMProvider)
-    assert provider._model == "anthropic/claude-opus-4-8"
-
-
-def test_registry_openai_compat_alias_prefixes_and_keeps_base_url() -> None:
-    provider = create_provider(
-        LLMConfig(provider="openai-compat", model="my-model", base_url="http://x/v1")
-    )
-    assert isinstance(provider, LiteLLMProvider)
-    assert provider._model == "openai/my-model"
+    assert provider._custom_llm_provider == "openai"
     assert provider._base_url == "http://x/v1"
 
 
-def test_registry_openai_alias_passes_model_through() -> None:
-    provider = create_provider(LLMConfig(provider="openai", model="gpt-5.5"))
+def test_registry_litellm_escape_hatch_has_no_custom_provider() -> None:
+    provider = create_provider(
+        LLMConfig(provider="litellm", model="openrouter/anthropic/claude-opus-4-8")
+    )
     assert isinstance(provider, LiteLLMProvider)
-    assert provider._model == "gpt-5.5"
+    assert provider._custom_llm_provider is None
+    assert provider.supports_conversations
 
 
 def test_registry_unknown_provider_raises() -> None:
     with pytest.raises(ValueError, match="Unknown LLM provider"):
-        create_provider(LLMConfig(provider="bogus"))
+        create_provider(LLMConfig(provider="anthropci"))

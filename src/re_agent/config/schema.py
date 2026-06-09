@@ -31,7 +31,7 @@ class ProjectProfile:
 class LLMConfig:
     """LLM provider configuration."""
 
-    provider: str = "claude"
+    provider: str = "anthropic"
     model: str = "claude-opus-4-8"
     api_key: str | None = None
     base_url: str | None = None

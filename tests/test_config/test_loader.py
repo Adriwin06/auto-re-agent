@@ -12,7 +12,7 @@ from re_agent.config.schema import ReAgentConfig
 def test_load_default_config() -> None:
     config = load_config(None)
     assert isinstance(config, ReAgentConfig)
-    assert config.llm.provider == "claude"
+    assert config.llm.provider == "anthropic"
     assert config.backend.type == "ghidra-bridge"
     assert config.orchestrator.max_review_rounds == 4
     assert config.orchestrator.objective_verifier_enabled is True

@@ -11,7 +11,7 @@ project_profile:
   hooks_csv: "./docs/hooks.csv"
 
 llm:
-  provider: "claude"
+  provider: "anthropic"
   model: "claude-opus-4-8"
   max_tokens: 4096
   temperature: 0.0

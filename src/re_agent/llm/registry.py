@@ -1,31 +1,31 @@
 """LLM provider factory registry.
 
-API providers are consolidated behind :class:`LiteLLMProvider`; the legacy
-``claude`` / ``openai`` / ``openai-compat`` keys are kept as aliases that route
-through LiteLLM with appropriate model-string normalization.  CLI providers
-(``claude-code``, ``antigravity``, ``codex``) shell out to local binaries and
-need no API key.
+Two kinds of providers exist:
+
+* **API providers** are served through LiteLLM.  The ``provider`` config key is a
+  LiteLLM vendor name (``anthropic``, ``openai``, ``gemini``, ``ollama``,
+  ``mistral``, ``openrouter``, …) and is forwarded as ``custom_llm_provider``;
+  ``model`` is the bare model id.  The special key ``litellm`` lets the ``model``
+  string carry the full route itself (no ``custom_llm_provider``).
+* **CLI providers** (``codex``, ``claude-code``, ``antigravity``) shell out to a
+  local binary and never touch LiteLLM — they need no API key.
 """
 from __future__ import annotations
 
 from re_agent.config.schema import LLMConfig
 from re_agent.llm.protocol import LLMProvider
 
+# CLI providers that bypass LiteLLM entirely.
+CLI_PROVIDERS: tuple[str, ...] = ("codex", "claude-code", "antigravity")
 
-def _normalize_model(provider: str, model: str) -> str:
-    """Map a legacy provider key + model onto a LiteLLM model string."""
-    if provider == "claude":
-        # Bare ``claude-*`` ids route to Anthropic via the ``anthropic/`` prefix.
-        if model.startswith("claude-"):
-            return f"anthropic/{model}"
-        return model
-    if provider == "openai-compat":
-        # Custom OpenAI-compatible endpoints use the ``openai/`` prefix + api_base.
-        if "/" not in model:
-            return f"openai/{model}"
-        return model
-    # "openai" and "litellm": pass through verbatim.
-    return model
+
+def _litellm_provider_names() -> set[str]:
+    """Return the set of LiteLLM vendor names, or empty if litellm is unavailable."""
+    try:
+        import litellm
+    except ImportError:
+        return set()
+    return {getattr(p, "value", p) for p in getattr(litellm, "provider_list", [])}
 
 
 def create_provider(config: LLMConfig) -> LLMProvider:
@@ -39,20 +39,12 @@ def create_provider(config: LLMConfig) -> LLMProvider:
         An object satisfying the :class:`LLMProvider` protocol.
 
     Raises:
-        ValueError: If ``config.provider`` is not a recognised provider name.
+        ValueError: If ``config.provider`` is neither a CLI provider, the
+            ``litellm`` escape hatch, nor a known LiteLLM vendor name.
     """
-    if config.provider in ("litellm", "claude", "openai", "openai-compat"):
-        from re_agent.llm.litellm_provider import LiteLLMProvider
+    provider = config.provider
 
-        return LiteLLMProvider(
-            api_key=config.api_key,
-            model=_normalize_model(config.provider, config.model),
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-            base_url=config.base_url,
-        )
-
-    if config.provider == "claude-code":
+    if provider == "claude-code":
         from re_agent.llm.claude_code import ClaudeCodeProvider
 
         return ClaudeCodeProvider(
@@ -60,14 +52,14 @@ def create_provider(config: LLMConfig) -> LLMProvider:
             timeout_s=config.timeout_s,
         )
 
-    if config.provider == "antigravity":
+    if provider == "antigravity":
         from re_agent.llm.antigravity import AntigravityProvider
 
         return AntigravityProvider(
             timeout_s=config.timeout_s,
         )
 
-    if config.provider == "codex":
+    if provider == "codex":
         from re_agent.llm.codex_cli import CodexCLIProvider
 
         return CodexCLIProvider(
@@ -75,8 +67,30 @@ def create_provider(config: LLMConfig) -> LLMProvider:
             timeout_s=config.timeout_s,
         )
 
-    raise ValueError(
-        f"Unknown LLM provider: {config.provider!r}. "
-        f"Supported providers: 'litellm', 'claude', 'openai', 'openai-compat', "
-        f"'claude-code', 'antigravity', 'codex'."
+    # ------------------------------------------------------------------ #
+    # Everything else is served through LiteLLM.
+    # ------------------------------------------------------------------ #
+    from re_agent.llm.litellm_provider import LiteLLMProvider
+
+    # ``litellm`` is an explicit escape hatch: let the model string carry the
+    # route and don't pin a vendor.
+    custom_llm_provider: str | None = None if provider == "litellm" else provider
+
+    if custom_llm_provider is not None:
+        known = _litellm_provider_names()
+        if known and custom_llm_provider not in known:
+            raise ValueError(
+                f"Unknown LLM provider: {provider!r}. Expected a CLI provider "
+                f"({', '.join(CLI_PROVIDERS)}), 'litellm', or a LiteLLM vendor name "
+                f"(e.g. 'anthropic', 'openai', 'gemini', 'ollama', 'mistral', "
+                f"'openrouter'; see litellm.provider_list for the full set)."
+            )
+
+    return LiteLLMProvider(
+        api_key=config.api_key,
+        model=config.model,
+        custom_llm_provider=custom_llm_provider,
+        max_tokens=config.max_tokens,
+        temperature=config.temperature,
+        base_url=config.base_url,
     )

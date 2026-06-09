@@ -25,13 +25,15 @@ project_profile:
   hooks_csv: "docs/hooks.csv"
 
 llm:
-  # API providers are served through LiteLLM. The model string selects the
-  # backend; auth is read from the matching env var (ANTHROPIC_API_KEY,
-  # OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, ...).
-  provider: "litellm"
-  model: "claude-opus-4-8"   # or "gpt-5.5", "gemini/gemini-3.1-pro", "openrouter/anthropic/claude-opus-4-8"
-  # Legacy aliases (route through LiteLLM): "claude", "openai", "openai-compat".
-  # CLI providers (no API key needed):
+  # API providers are served through LiteLLM. `provider` is the LiteLLM vendor
+  # name and `model` is the bare model id; auth is read from the matching env var
+  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, ...).
+  provider: "anthropic"      # anthropic | openai | gemini | ollama | mistral | openrouter | ... (any LiteLLM vendor)
+  model: "claude-opus-4-8"   # e.g. openai/gpt-5.5, gemini/gemini-3.1-pro, ollama/llama3
+  # For an OpenAI-compatible / self-hosted endpoint: provider "openai" + base_url.
+  # Escape hatch: provider "litellm" lets `model` carry the full route itself
+  #   (e.g. model: "openrouter/anthropic/claude-opus-4-8").
+  # CLI providers (no API key, do NOT go through LiteLLM):
   #   provider: "claude-code"   # uses ~/.claude/ auth; model -> --model
   #   provider: "antigravity"   # uses Google Sign-In; requires `agy` on PATH
   #   provider: "codex"         # uses ChatGPT login

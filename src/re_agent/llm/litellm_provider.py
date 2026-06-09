@@ -1,10 +1,11 @@
 """LiteLLM-backed LLM provider.
 
 A single provider that wraps :func:`litellm.completion`, so any backend LiteLLM
-supports (Anthropic, OpenAI, Gemini, OpenRouter, OpenAI-compatible endpoints, …)
-can be reached through one code path.  The ``model`` string selects the backend,
-e.g. ``"claude-opus-4-8"``, ``"gemini/gemini-3.1-pro"``,
-``"openrouter/anthropic/claude-opus-4-8"``, ``"gpt-5.5"``.
+supports (Anthropic, OpenAI, Gemini, Ollama, Mistral, OpenRouter, …) can be
+reached through one code path.  The backend is selected by ``custom_llm_provider``
+(the LiteLLM vendor name, e.g. ``"anthropic"``); ``model`` is the bare model id
+(e.g. ``"claude-opus-4-8"``).  When ``custom_llm_provider`` is ``None``, LiteLLM
+infers the backend from the ``model`` string itself (e.g. ``"openrouter/anthropic/claude-opus-4-8"``).
 """
 from __future__ import annotations
 
@@ -25,7 +26,10 @@ class LiteLLMProvider:
     Args:
         api_key: Optional API key forwarded to LiteLLM.  If ``None``, LiteLLM
             resolves credentials from the appropriate environment variable.
-        model: LiteLLM model string selecting the backend.
+        model: Bare model id (e.g. ``"claude-opus-4-8"``).
+        custom_llm_provider: LiteLLM vendor name (e.g. ``"anthropic"``, ``"openai"``,
+            ``"gemini"``, ``"ollama"``).  If ``None``, LiteLLM infers the backend
+            from the ``model`` string.
         max_tokens: Maximum tokens in the response.
         temperature: Sampling temperature (``0.0`` = deterministic).
         base_url: Optional API base URL for OpenAI-compatible / self-hosted endpoints.
@@ -35,12 +39,14 @@ class LiteLLMProvider:
         self,
         api_key: str | None = None,
         model: str = "claude-opus-4-8",
+        custom_llm_provider: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.0,
         base_url: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
+        self._custom_llm_provider = custom_llm_provider
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._base_url = base_url
@@ -68,6 +74,8 @@ class LiteLLMProvider:
             "max_tokens": kwargs.get("max_tokens", self._max_tokens),
             "temperature": kwargs.get("temperature", self._temperature),
         }
+        if self._custom_llm_provider is not None:
+            completion_kwargs["custom_llm_provider"] = self._custom_llm_provider
         if self._api_key is not None:
             completion_kwargs["api_key"] = self._api_key
         if self._base_url is not None:

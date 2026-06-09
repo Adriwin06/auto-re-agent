@@ -51,13 +51,13 @@ output:
 
 def test_reverse_dry_run(tmp_path: Path) -> None:
     config_path = tmp_path / "re-agent.yaml"
-    config_path.write_text("llm:\n  provider: claude\n")
+    config_path.write_text("llm:\n  provider: anthropic\n")
     result = main(["--config", str(config_path), "reverse", "--address", "0x6F86A0", "--dry-run"])
     assert result == 0
 
 
 def test_reverse_no_target(tmp_path: Path) -> None:
     config_path = tmp_path / "re-agent.yaml"
-    config_path.write_text("llm:\n  provider: claude\n")
+    config_path.write_text("llm:\n  provider: anthropic\n")
     result = main(["--config", str(config_path), "reverse"])
     assert result == 1
