@@ -22,6 +22,9 @@ class ProjectProfile:
     class_macro: str = "RH_ScopedClass"
     source_root: str = "source/game_sa"
     leaked_source_root: str = "BrnEntityModuleUnity/BrnEntityModuleUnity-split-v1"
+    # Offline Ghidra export of rwcore (rwcore.lib + rwcore.pdb). Used to inject
+    # Renderware 4 `rw::` type definitions into reverser context on demand.
+    rwcore_export_root: str = ".ghidra-exports/rwcore"
     source_extensions: list[str] = field(default_factory=lambda: [
         ".cpp", ".h", ".hpp",
     ])

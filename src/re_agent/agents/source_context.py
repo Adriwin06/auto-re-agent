@@ -35,7 +35,13 @@ class SourceContextBuilder:
             leaked_path = source_root.parent / leaked_path
         self.leaked_indexer = LeakedSourceIndexer(leaked_path)
 
-    def build(self, target: FunctionTarget) -> str:
+        from re_agent.parity.rwcore_indexer import RwcoreTypeIndexer
+        rwcore_path = Path(profile.rwcore_export_root)
+        if not rwcore_path.is_absolute():
+            rwcore_path = source_root.parent / rwcore_path
+        self.rwcore_indexer = RwcoreTypeIndexer(rwcore_path)
+
+    def build(self, target: FunctionTarget, hint_text: str = "") -> str:
         sections: list[str] = []
 
         header = self._find_class_header(target.class_name)
@@ -59,6 +65,16 @@ class SourceContextBuilder:
         recent = self._find_recent_generated_code(target)
         if recent:
             sections.append("Recent verified reversals:\n" + "\n\n".join(recent))
+
+        # Inject Renderware `rw::` type layouts mentioned anywhere in the context
+        # we've assembled (leaked snippet, header, class name) or in hint_text
+        # (the active-target decompile/structs, where engine types are often
+        # stripped placeholders the agent must map back to rw:: names).
+        rwcore_types = self.rwcore_indexer.lookup(
+            hint_text, target.class_name or "", "\n\n".join(sections)
+        )
+        if rwcore_types:
+            sections.append(rwcore_types)
 
         if not sections:
             return "No relevant existing source context found."

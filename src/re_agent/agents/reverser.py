@@ -82,7 +82,9 @@ class ReverserAgent:
         system_prompt = render_template(PROMPTS_DIR / "reverser_system.md")
         source_context = ""
         if self._source_context_builder is not None:
-            source_context = self._source_context_builder.build(target)
+            source_context = self._source_context_builder.build(
+                target, hint_text=f"{decompiled}\n{structs_text}"
+            )
         task_prompt = render_template(
             PROMPTS_DIR / "reverser_task.md",
             class_name=target.class_name,
