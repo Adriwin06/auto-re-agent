@@ -17,22 +17,33 @@ class IDAFallbackManager:
         self.timeout_s = timeout_s
 
     def get_idb_path(self, repo_root: Path) -> Path:
-        """Resolve the target .i64 database path from the active config."""
+        """Resolve the target .i64 database from the active ghidra-bridge.yaml.
+
+        The Ghidra ``program_name`` equals the IDA-exported filename minus its
+        suffix, which is also the ``.i64`` stem — so ``<program_name>.i64`` is the
+        database for every target (X360 / PS3 / TUB / BPR / DecFIGS / rwcore).
+        Falls back to the X360 primary oracle when the config or file is missing.
+        """
+        ida_dir = repo_root / "IDA Files"
+        default = ida_dir / "BURNOUT_X360_ARTIST.XEX.i64"
+
         bridge_yaml = repo_root / "ghidra-bridge.yaml"
         if not bridge_yaml.exists():
-            # Fallback to default
-            return repo_root / "IDA Files" / "BURNOUT_X360_ARTIST.XEX.i64"
+            return default
 
         try:
             with open(bridge_yaml, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            prog = data.get("ghidra", {}).get("program_name", "")
-            if "PS3" in prog or prog.lower().endswith(".elf"):
-                return repo_root / "IDA Files" / "Burnout_External_PS3.ELF.i64"
+                data = yaml.safe_load(f) or {}
+            prog = ((data.get("ghidra") or {}).get("program_name") or "").strip()
+            if prog:
+                candidate = ida_dir / f"{prog}.i64"
+                if candidate.exists():
+                    return candidate
+                print(f"[IDA-FALLBACK] Warning: {candidate.name} not found; using X360 default.")
         except Exception as e:
             print(f"[IDA-FALLBACK] Warning: Failed to parse ghidra-bridge.yaml: {e}")
 
-        return repo_root / "IDA Files" / "BURNOUT_X360_ARTIST.XEX.i64"
+        return default
 
     def decompile(self, address: str) -> str | None:
         """Decompile the given function address headlessly using IDA Pro.
