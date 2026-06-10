@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -24,7 +25,7 @@ class CodexCLIProvider:
     ) -> None:
         self._model = model
         self._timeout_s = timeout_s
-        self._codex_bin = codex_bin
+        self._codex_bin = shutil.which(codex_bin) or shutil.which(f"{codex_bin}.cmd") or codex_bin
         self._extra_args = list(extra_args or [])
         self._env = dict(env or {})
         self._conversations: dict[str, list[Message]] = {}
@@ -46,19 +47,25 @@ class CodexCLIProvider:
                     "--color",
                     "never",
                     "--skip-git-repo-check",
+                    "--ephemeral",
+                    "--ignore-rules",
                     "--output-last-message",
                     str(out_path),
                     "-m",
                     str(model),
                     *self._extra_args,
-                    prompt,
+                    "-",
                 ],
+                input=prompt,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self._timeout_s,
                 check=False,
                 env=run_env,
+                cwd=tempfile.gettempdir(),
             )
             if proc.returncode != 0:
                 raise RuntimeError(
@@ -69,6 +76,8 @@ class CodexCLIProvider:
             raise RuntimeError(f"codex exec timed out after {self._timeout_s}s") from exc
         except FileNotFoundError as exc:
             raise RuntimeError(f"codex CLI not found: {self._codex_bin}") from exc
+        except PermissionError as exc:
+            raise RuntimeError(f"codex CLI could not be executed: {self._codex_bin}: {exc}") from exc
         finally:
             out_path.unlink(missing_ok=True)
 

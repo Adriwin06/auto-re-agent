@@ -32,6 +32,8 @@ def run_cmd(args: Sequence[str], timeout_s: int = 45) -> tuple[bool, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
             check=False,
         )
@@ -66,6 +68,8 @@ def run_cmd_split(
             input=input_str,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
             check=False,
             env=_merged_env(env),

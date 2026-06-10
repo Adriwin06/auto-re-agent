@@ -42,6 +42,8 @@ _TRANSIENT_CLI_SIGNATURES: tuple[str, ...] = (
     "connection reset",
     "connection refused",
     "empty response",
+    "access is denied",
+    "could not be executed",
 )
 
 
