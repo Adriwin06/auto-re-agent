@@ -52,6 +52,9 @@ class AntigravityProvider:
             raise RuntimeError(
                 f"agy -p failed with exit code {returncode}\n{stderr or stdout}"
             )
+        if not stdout.strip():
+            detail = stderr.strip() or "empty response"
+            raise RuntimeError(f"agy -p returned empty response\n{detail}")
         return stdout
 
     @property

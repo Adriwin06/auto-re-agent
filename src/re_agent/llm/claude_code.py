@@ -31,9 +31,10 @@ class ClaudeCodeProvider:
         extra_args: list[str] | None = None,
         env: dict | None = None,
     ) -> None:
+        import shutil
         self._model = model
         self._timeout_s = timeout_s
-        self._claude_bin = claude_bin
+        self._claude_bin = shutil.which(claude_bin) or claude_bin
         self._extra_args = list(extra_args or [])
         self._env = dict(env or {})
         self._conversations: dict[str, list[Message]] = {}
@@ -42,12 +43,14 @@ class ClaudeCodeProvider:
         prompt = self._render_messages(messages)
         model = kwargs.get("model", self._model)
 
-        args = [self._claude_bin, "--print", prompt]
+        args = [self._claude_bin, "--no-session-persistence", "--print"]
         if model:
             args += ["--model", str(model)]
         args += self._extra_args
 
-        returncode, stdout, stderr = run_cmd_split(args, timeout_s=self._timeout_s, env=self._env)
+        returncode, stdout, stderr = run_cmd_split(
+            args, timeout_s=self._timeout_s, env=self._env, input_str=prompt
+        )
         if returncode != 0:
             raise RuntimeError(
                 f"claude --print failed with exit code {returncode}\n{stderr or stdout}"

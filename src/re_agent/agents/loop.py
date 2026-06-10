@@ -19,6 +19,7 @@ from re_agent.core.models import (
 from re_agent.core.session import Session
 from re_agent.llm.protocol import LLMProvider, Message
 from re_agent.parity.source_indexer import SourceIndexer
+from re_agent.runtime.events import emit_event
 from re_agent.verification.objective import verify_candidate
 
 
@@ -73,8 +74,26 @@ def run_fix_loop(
     last_verdict: CheckerVerdict | None = None
     last_objective_verdict: ObjectiveVerdict | None = None
 
+    emit_event(
+        "fix_loop.started",
+        {
+            "target": target,
+            "max_rounds": max_rounds,
+            "objective_verifier_enabled": objective_verifier_enabled,
+        },
+    )
+
     for round_num in range(1, max_rounds + 1):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
+        phase = "reverse" if round_num == 1 else "fix"
+        emit_event(
+            "fix_loop.round.started",
+            {
+                "target": target,
+                "round": round_num,
+                "phase": phase,
+            },
+        )
 
         # Reverse (or fix)
         if round_num == 1:
@@ -89,13 +108,40 @@ def run_fix_loop(
                 objective_findings=last_objective_verdict.findings if last_objective_verdict else None,
             )
 
+        emit_event(
+            "reverser.completed",
+            {
+                "target": target,
+                "round": round_num,
+                "phase": phase,
+                "tag": tag,
+                "code": code,
+                "code_length": len(code),
+            },
+        )
+
         # Intercept IDA decompile request if LLM requested it
         if reverser.last_response and "[REQUEST_IDA_DECOMPILE]" in reverser.last_response:
+            emit_event(
+                "ida_fallback.requested",
+                {
+                    "target": target,
+                    "round": round_num,
+                },
+            )
             print(f"[LOOP] LLM requested IDA decompilation for 0x{target.address}.")
             from re_agent.backend.ida_fallback import IDAFallbackManager
             mgr = IDAFallbackManager(ida_bin=ida_bin)
             pseudocode = mgr.decompile(target.address)
             if pseudocode:
+                emit_event(
+                    "ida_fallback.completed",
+                    {
+                        "target": target,
+                        "round": round_num,
+                        "pseudocode": pseudocode,
+                    },
+                )
                 msg = (
                     f"Here is the pseudocode from the IDA Pro Hex-Rays decompiler for address 0x{target.address}:\n"
                     f"```cpp\n{pseudocode}\n```\n"
@@ -111,13 +157,32 @@ def run_fix_loop(
                         Message(role="user", content=msg),
                     ]
                     response = reverser.llm.send(messages)
-                
+
                 reverser.last_response = response
                 code = reverser._extract_code(response)
                 tag = reverser._extract_tag(response)
-                print(f"[LOOP] IDA decompile successfully injected and C++ code regenerated.")
+                emit_event(
+                    "reverser.completed",
+                    {
+                        "target": target,
+                        "round": round_num,
+                        "phase": "ida-fix",
+                        "tag": tag,
+                        "code": code,
+                        "code_length": len(code),
+                    },
+                )
+                print("[LOOP] IDA decompile successfully injected and C++ code regenerated.")
             else:
-                print(f"[LOOP] Warning: IDA decompilation failed or was not configured. Continuing with current code.")
+                emit_event(
+                    "ida_fallback.failed",
+                    {
+                        "target": target,
+                        "round": round_num,
+                        "error": "IDA decompilation failed or was not configured.",
+                    },
+                )
+                print("[LOOP] Warning: IDA decompilation failed or was not configured. Continuing with current code.")
 
         if log_dir:
             log_entry = {
@@ -134,17 +199,52 @@ def run_fix_loop(
             log_path.write_text(json.dumps(log_entry, indent=2), encoding="utf-8")
 
         # Check
+        emit_event(
+            "checker.started",
+            {
+                "target": target,
+                "round": round_num,
+            },
+        )
         verdict = checker.check(code, target)
         last_verdict = verdict
+        emit_event(
+            "checker.completed",
+            {
+                "target": target,
+                "round": round_num,
+                "verdict": verdict.verdict.value,
+                "summary": verdict.summary,
+                "issues": verdict.issues,
+                "fix_instructions": verdict.fix_instructions,
+            },
+        )
 
         objective_verdict: ObjectiveVerdict | None = None
         if objective_verifier_enabled:
+            emit_event(
+                "objective_verifier.started",
+                {
+                    "target": target,
+                    "round": round_num,
+                },
+            )
             objective_verdict = verify_candidate(
                 code,
                 target,
                 backend,
                 call_count_tolerance=objective_call_count_tolerance,
                 control_flow_tolerance=objective_control_flow_tolerance,
+            )
+            emit_event(
+                "objective_verifier.completed",
+                {
+                    "target": target,
+                    "round": round_num,
+                    "verdict": objective_verdict.verdict.value,
+                    "summary": objective_verdict.summary,
+                    "findings": objective_verdict.findings,
+                },
             )
         last_objective_verdict = objective_verdict
 
@@ -169,7 +269,7 @@ def run_fix_loop(
         if verdict.verdict == Verdict.PASS and (
             objective_verdict is None or objective_verdict.verdict != Verdict.FAIL
         ):
-            return ReversalResult(
+            result = ReversalResult(
                 target=target,
                 code=code,
                 checker_verdict=verdict,
@@ -179,9 +279,11 @@ def run_fix_loop(
                 rounds_used=round_num,
                 success=True,
             )
+            emit_event("fix_loop.completed", {"target": target, "result": result})
+            return result
 
     # Exhausted all rounds
-    return ReversalResult(
+    result = ReversalResult(
         target=target,
         code=code,
         checker_verdict=last_verdict,
@@ -191,3 +293,5 @@ def run_fix_loop(
         rounds_used=max_rounds,
         success=False,
     )
+    emit_event("fix_loop.completed", {"target": target, "result": result})
+    return result

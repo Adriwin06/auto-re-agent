@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     stat_p.add_argument("--class", dest="class_name", help="Filter by class")
     stat_p.add_argument("--format", choices=["text", "json", "markdown"], default="text")
 
+    # web
+    web_p = sub.add_parser("web", help="Start the local live web UI")
+    web_p.add_argument("--host", default="127.0.0.1", help="Bind host")
+    web_p.add_argument("--port", type=int, default=8787, help="Bind port")
+    web_p.add_argument("--open", action="store_true", help="Open the UI in the default browser")
+
     # agentify-login
     sub.add_parser(
         "agentify-login",
@@ -73,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         from re_agent.cli.cmd_status import cmd_status
         return cmd_status(args)
+
+    if args.command == "web":
+        from re_agent.cli.cmd_web import cmd_web
+        return cmd_web(args)
 
     if args.command == "agentify-login":
         from re_agent.cli.cmd_agentify_login import cmd_agentify_login

@@ -43,7 +43,10 @@ def run_cmd(args: Sequence[str], timeout_s: int = 45) -> tuple[bool, str]:
 
 
 def run_cmd_split(
-    args: Sequence[str], timeout_s: int = 45, env: Mapping[str, str] | None = None
+    args: Sequence[str],
+    timeout_s: int = 45,
+    env: Mapping[str, str] | None = None,
+    input_str: str | None = None,
 ) -> tuple[int, str, str]:
     """Run a command and return ``(returncode, stdout, stderr)`` separately.
 
@@ -53,12 +56,14 @@ def run_cmd_split(
     Args:
         env: Extra environment variables overlaid on the current process
             environment.  ``None``/empty inherits the environment unchanged.
+        input_str: Optional string to write to the process's standard input.
 
     Returns ``(-1, "", error_message)`` on timeout or missing executable.
     """
     try:
         proc = subprocess.run(
             list(args),
+            input=input_str,
             capture_output=True,
             text=True,
             timeout=timeout_s,

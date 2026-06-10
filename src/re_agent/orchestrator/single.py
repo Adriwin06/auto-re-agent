@@ -12,6 +12,7 @@ from re_agent.core.session import Session
 from re_agent.llm.protocol import LLMProvider
 from re_agent.parity.engine import fetch_ghidra_data, score_single
 from re_agent.parity.source_indexer import SourceIndexer
+from re_agent.runtime.events import emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def reverse_single(
         checker_llm: LLM provider for the checker agent.  When ``None`` the
             checker reuses ``llm`` (the reverser provider).
     """
+    emit_event("reverse_single.started", {"target": target})
     log_dir = Path(config.output.log_dir) if config.output.log_dir else None
 
     result = run_fix_loop(
@@ -67,12 +69,29 @@ def reverse_single(
             code_path = code_dir / safe_name
             code_path.write_text(result.code, encoding="utf-8")
             logger.info("Code written to %s", code_path)
+            emit_event(
+                "code.written",
+                {
+                    "target": target,
+                    "path": str(code_path),
+                    "code_length": len(result.code),
+                },
+            )
         except OSError as exc:
             logger.warning("Failed to write code file: %s", exc)
+            emit_event(
+                "code.write_failed",
+                {
+                    "target": target,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
 
     # Run parity check if enabled and code was produced
     if config.parity.enabled and result.code:
         try:
+            emit_event("parity.started", {"target": target})
             if indexer is None:
                 source_root = Path(config.project_profile.source_root)
                 indexer = SourceIndexer(source_root, config.project_profile)
@@ -92,6 +111,14 @@ def reverse_single(
                 ghidra=ghidra_data,
                 config=config.parity,
             )
+            emit_event(
+                "parity.completed",
+                {
+                    "target": target,
+                    "status": status.value,
+                    "findings": findings,
+                },
+            )
             result = ReversalResult(
                 target=result.target,
                 code=result.code,
@@ -104,10 +131,20 @@ def reverse_single(
             )
         except (FileNotFoundError, ValueError) as exc:
             logger.warning("Parity check failed for %s: %s", target.address, exc)
+            emit_event(
+                "parity.failed",
+                {
+                    "target": target,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
 
     if session:
         session.record_result(result)
+        emit_event("session.recorded", {"target": target, "result": result})
 
+    emit_event("reverse_single.completed", {"target": target, "result": result})
     return result
 
 

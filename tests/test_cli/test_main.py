@@ -61,3 +61,11 @@ def test_reverse_no_target(tmp_path: Path) -> None:
     config_path.write_text("llm:\n  provider: anthropic\n")
     result = main(["--config", str(config_path), "reverse"])
     assert result == 1
+
+
+def test_web_parser_defaults() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["web"])
+    assert args.command == "web"
+    assert args.host == "127.0.0.1"
+    assert args.port == 8787

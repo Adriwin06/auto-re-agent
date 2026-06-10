@@ -18,11 +18,15 @@ def _patch_run(monkeypatch: pytest.MonkeyPatch, module: Any, result: tuple[int, 
     captured: dict[str, Any] = {}
 
     def fake_run(
-        args: list[str], timeout_s: int = 45, env: dict | None = None
+        args: list[str],
+        timeout_s: int = 45,
+        env: dict | None = None,
+        input_str: str | None = None,
     ) -> tuple[int, str, str]:
         captured["args"] = list(args)
         captured["timeout_s"] = timeout_s
         captured["env"] = env
+        captured["input_str"] = input_str
         return result
 
     monkeypatch.setattr(module, "run_cmd_split", fake_run)
@@ -34,10 +38,13 @@ def test_claude_code_argv_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = ClaudeCodeProvider(model="claude-opus-4-8", timeout_s=120)
     out = provider.send([Message(role="user", content="hi")])
     assert out == "the answer"
-    assert captured["args"][:2] == ["claude", "--print"]
+    assert captured["args"][0].endswith(("claude", "claude.CMD", "claude.exe"))
+    assert "--print" in captured["args"]
+    assert "--no-session-persistence" in captured["args"]
     assert "--model" in captured["args"]
     assert captured["args"][captured["args"].index("--model") + 1] == "claude-opus-4-8"
     assert captured["timeout_s"] == 120
+    assert captured["input_str"] == "[USER]\nhi"
 
 
 def test_claude_code_no_model_omits_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,6 +70,12 @@ def test_antigravity_argv_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_antigravity_nonzero_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_run(monkeypatch, antigravity_mod, (2, "", "nope"))
     with pytest.raises(RuntimeError, match="agy -p failed"):
+        AntigravityProvider().send([Message(role="user", content="hi")])
+
+
+def test_antigravity_empty_output_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_run(monkeypatch, antigravity_mod, (0, "", ""))
+    with pytest.raises(RuntimeError, match="empty response"):
         AntigravityProvider().send([Message(role="user", content="hi")])
 
 

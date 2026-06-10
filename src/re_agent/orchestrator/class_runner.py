@@ -13,6 +13,7 @@ from re_agent.core.session import Session
 from re_agent.llm.protocol import LLMProvider
 from re_agent.orchestrator.single import reverse_single
 from re_agent.parity.source_indexer import SourceIndexer
+from re_agent.runtime.events import emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ def reverse_class(
 
     limit = max_functions or config.orchestrator.max_functions_per_class
     results: list[ReversalResult] = []
+    emit_event("reverse_class.started", {"class_name": class_name, "limit": limit})
 
     # Build the source indexer once for the entire class run.
     indexer: SourceIndexer | None = None
@@ -58,9 +60,19 @@ def reverse_class(
     for fn_idx in range(1, limit + 1):
         target = pick_next(class_name, backend, session)
         if target is None:
+            emit_event("reverse_class.no_candidates", {"class_name": class_name})
             print(f"No more candidates in {class_name}.", file=sys.stderr)
             break
 
+        emit_event(
+            "reverse_class.function_selected",
+            {
+                "class_name": class_name,
+                "index": fn_idx,
+                "limit": limit,
+                "target": target,
+            },
+        )
         print(
             f"[{fn_idx}/{limit}] Reversing {target.class_name}::{target.function_name} "
             f"({target.address})...",
@@ -73,9 +85,29 @@ def reverse_class(
         results.append(result)
 
         status = "PASS" if result.success else "FAIL"
+        emit_event(
+            "reverse_class.function_completed",
+            {
+                "class_name": class_name,
+                "index": fn_idx,
+                "limit": limit,
+                "target": target,
+                "status": status,
+                "rounds_used": result.rounds_used,
+            },
+        )
         print(
             f"  -> {status} (rounds: {result.rounds_used})",
             file=sys.stderr,
         )
 
+    emit_event(
+        "reverse_class.completed",
+        {
+            "class_name": class_name,
+            "limit": limit,
+            "attempted": len(results),
+            "passed": sum(1 for result in results if result.success),
+        },
+    )
     return results
