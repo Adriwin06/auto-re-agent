@@ -25,6 +25,10 @@ class ProjectProfile:
     # Offline Ghidra export of rwcore (rwcore.lib + rwcore.pdb). Used to inject
     # Renderware 4 `rw::` type definitions into reverser context on demand.
     rwcore_export_root: str = ".ghidra-exports/rwcore"
+    # DecFIGS source-structure export (decfigs_func_files.json from the DWARF
+    # line table). Injects each function's home file + inlined-source attribution
+    # so the reverser writes into the original tree structure up front.
+    decfigs_export_root: str = ".ghidra-exports/decfigs"
     # Build exports searched by the on-demand [REQUEST_CROSS_REF] lookup
     # (label -> export dir, relative to the repo root). Same-named functions in
     # other builds are pulled to recover inlined boundaries / confirm logic.

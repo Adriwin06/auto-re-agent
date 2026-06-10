@@ -41,8 +41,22 @@ class SourceContextBuilder:
             rwcore_path = source_root.parent / rwcore_path
         self.rwcore_indexer = RwcoreTypeIndexer(rwcore_path)
 
+        from re_agent.parity.decfigs_indexer import DecfigsSourceIndexer
+        decfigs_path = Path(profile.decfigs_export_root)
+        if not decfigs_path.is_absolute():
+            decfigs_path = source_root.parent / decfigs_path
+        self.decfigs_indexer = DecfigsSourceIndexer(decfigs_path)
+
     def build(self, target: FunctionTarget, hint_text: str = "") -> str:
         sections: list[str] = []
+
+        # Up-front source structure: which file this function lives in and what
+        # it inlines (authoritative DecFIGS DWARF attribution).
+        decfigs = self.decfigs_indexer.lookup(
+            target.class_name or "", target.function_name or ""
+        )
+        if decfigs:
+            sections.append(decfigs)
 
         header = self._find_class_header(target.class_name)
         if header:
