@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -134,6 +135,36 @@ def _leaked_relative_dir(indexer, class_name: str, fn_name: str) -> Path | None:
     return None
 
 
+def _class_filename(class_name: str) -> str:
+    """Return a filesystem-safe ``.cpp`` filename for a (possibly namespaced) class.
+
+    ``A::B::Name`` -> ``A_B_Name.cpp``. Windows forbids ``:`` in filenames, so the
+    qualified class name must be flattened before it can be written.
+    """
+    return (class_name or "Unknown").replace("::", "_") + ".cpp"
+
+
+def _extract_qualified_class(code: str, fn_name: str) -> str | None:
+    """Best-effort recovery of the fully-qualified class from generated code.
+
+    Looks for the method definition ``Qualified::fn_name(`` and, if present, an
+    enclosing ``namespace A::B {`` to prepend.  Returns ``None`` for free
+    functions that have no owning class, so the caller can leave the target as-is.
+    """
+    if not code or not fn_name:
+        return None
+    ident = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
+    m = re.search(rf"({ident})::{re.escape(fn_name)}\s*\(", code)
+    cls = m.group(1) if m else None
+    nm = re.search(rf"\bnamespace\s+({ident})\s*\{{", code)
+    ns = nm.group(1) if nm else None
+    if cls:
+        if ns and not cls.startswith(ns):
+            return f"{ns}::{cls}"
+        return cls
+    return None
+
+
 def _heuristic_class_path(class_name: str) -> Path:
     """Last-resort path mapping for classes absent from the leaked source.
 
@@ -153,8 +184,8 @@ def _heuristic_class_path(class_name: str) -> Path:
             if any(class_name.startswith(p) for p in prefixes):
                 sub = folder
                 break
-        return _B5_SRC / "GameShared" / "GameClasses" / sub / f"{class_name}.cpp"
-    return _B5_SRC / "GameSource" / class_name / f"{class_name}.cpp"
+        return _B5_SRC / "GameShared" / "GameClasses" / sub / _class_filename(class_name)
+    return _B5_SRC / "GameSource" / class_name.replace("::", "_") / _class_filename(class_name)
 
 
 def _class_to_b5_path(class_name: str, fn_name: str = "", leaked_root: str | None = None) -> Path:
@@ -169,7 +200,7 @@ def _class_to_b5_path(class_name: str, fn_name: str = "", leaked_root: str | Non
     if indexer is not None:
         rel_dir = _leaked_relative_dir(indexer, class_name, fn_name)
         if rel_dir is not None:
-            return _B5_SRC / rel_dir / f"{class_name}.cpp"
+            return _B5_SRC / rel_dir / _class_filename(class_name)
     return _heuristic_class_path(class_name)
 
 
@@ -299,6 +330,17 @@ def reverse_single(
         ida_bin=config.backend.ida_bin,
     )
 
+    # Recover the fully-qualified class from the generated code when the target
+    # was launched by bare function name (the X360 export often lacks Class::).
+    # This routes the file to the correct class folder (not Unknown/) and lets
+    # parity locate the body by class on re-runs.
+    if result.code and not target.class_name:
+        discovered = _extract_qualified_class(result.code, target.function_name)
+        if discovered:
+            target = replace(target, class_name=discovered)
+            result = replace(result, target=target)
+            emit_event("class.recovered", {"target": target, "class_name": discovered})
+
     # Write generated code to a file so users don't have to dig through logs
     if result.code:
         code_dir = output_dir or (Path(config.output.report_dir) / "code")
@@ -335,7 +377,13 @@ def reverse_single(
             if indexer is None:
                 source_root = Path(config.project_profile.source_root)
                 indexer = SourceIndexer(source_root, config.project_profile)
-            source = indexer.find(target.class_name, target.function_name)
+            # Score the freshly generated candidate directly (it is not on disk
+            # until _write_to_b5decomp below); fall back to the indexed source
+            # tree for re-runs where the body already exists.
+            source = (
+                indexer.match_code(result.code, target.class_name, target.function_name)
+                or indexer.find(target.class_name, target.function_name)
+            )
 
             # Fetch Ghidra data from the backend for signal checks
             ghidra_data = None

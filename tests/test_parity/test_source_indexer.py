@@ -148,3 +148,34 @@ void CTrain::ProcessControl() {
     entry = indexer.hook_address_index.get("0x6f86a0")
     assert entry is not None
     assert entry == ("CTrain", "ProcessControl")
+
+
+def test_match_code_free_function(tmp_path: Path) -> None:
+    # Empty tree: match_code must parse the in-memory candidate, not the disk.
+    indexer = SourceIndexer(tmp_path)
+    code = "std::uint64_t MakeHash(const char* s) {\n  if (!s) return 0;\n  return 1;\n}\n"
+    m = indexer.match_code(code, "", "MakeHash")
+    assert m is not None
+    assert m.body_lines > 1
+    assert m.control_flow_count >= 1
+
+
+def test_match_code_qualified_with_namespace(tmp_path: Path) -> None:
+    indexer = SourceIndexer(tmp_path)
+    code = (
+        "namespace CgsSound::Playback {\n"
+        "std::uint64_t Name::MakeHash(const char* s) {\n"
+        "  HashTable::Store(0, s);\n"
+        "  return 1;\n"
+        "}\n"
+        "}  // namespace CgsSound::Playback\n"
+    )
+    m = indexer.match_code(code, "CgsSound::Playback::Name", "MakeHash")
+    assert m is not None
+    assert m.call_count >= 1
+
+
+def test_match_code_missing_returns_none(tmp_path: Path) -> None:
+    indexer = SourceIndexer(tmp_path)
+    assert indexer.match_code("void Foo() {}", "", "MakeHash") is None
+    assert indexer.match_code("", "", "MakeHash") is None

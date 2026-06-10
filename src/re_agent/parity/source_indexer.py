@@ -445,3 +445,26 @@ class SourceIndexer:
             return free
         self.lookup_cache[key] = None
         return None
+
+    def match_code(self, code: str, class_name: str, fn_name: str) -> SourceMatch | None:
+        """Build a :class:`SourceMatch` directly from an in-memory candidate.
+
+        Unlike :meth:`find`, this does not require the function to be written to
+        disk first — it parses the freshly generated candidate string so parity
+        can score it on the *first* pass.  Handles both free (``ret Fn(...)``)
+        and qualified (``ret Class::Fn(...)``) definitions; the ``class_name``
+        is accepted for signature symmetry with :meth:`find` but not required.
+        """
+        if not code or not fn_name:
+            return None
+        pattern = re.compile(rf"\b{re.escape(fn_name)}\s*\(")
+        for m in pattern.finditer(code):
+            idx = m.start()
+            open_brace = self._find_function_body_open(code, idx, fn_name)
+            if open_brace is None:
+                continue
+            close_brace = self._find_matching_brace(code, open_brace)
+            if close_brace is None:
+                continue
+            return self._make_source_match(Path("<candidate>"), code, idx, open_brace, close_brace)
+        return None
