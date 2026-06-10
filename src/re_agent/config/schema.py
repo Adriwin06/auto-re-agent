@@ -25,6 +25,16 @@ class ProjectProfile:
     # Offline Ghidra export of rwcore (rwcore.lib + rwcore.pdb). Used to inject
     # Renderware 4 `rw::` type definitions into reverser context on demand.
     rwcore_export_root: str = ".ghidra-exports/rwcore"
+    # Build exports searched by the on-demand [REQUEST_CROSS_REF] lookup
+    # (label -> export dir, relative to the repo root). Same-named functions in
+    # other builds are pulled to recover inlined boundaries / confirm logic.
+    cross_ref_exports: dict[str, str] = field(default_factory=lambda: {
+        "X360 (symbols)": ".ghidra-exports/x360",
+        "PS3 (cross-check)": ".ghidra-exports/ps3",
+        "DecFIGS (file/line)": ".ghidra-exports/decfigs",
+        "TUB (PC DX9)": ".ghidra-exports/tub",
+        "BPR (PC DX11, hand-RE)": ".ghidra-exports/bpr",
+    })
     source_extensions: list[str] = field(default_factory=lambda: [
         ".cpp", ".h", ".hpp",
     ])

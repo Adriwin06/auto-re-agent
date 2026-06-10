@@ -120,6 +120,62 @@ def run_fix_loop(
             },
         )
 
+        # Intercept cross-build reference request if the LLM asked for it.
+        if reverser.last_response and "[REQUEST_CROSS_REF]" in reverser.last_response:
+            emit_event("cross_ref.requested", {"target": target, "round": round_num})
+            cross_exports = (
+                project_profile.cross_ref_exports if project_profile else {}
+            )
+            base = source_root.parent if source_root else Path(".")
+            resolved = {
+                label: (Path(d) if Path(d).is_absolute() else base / d)
+                for label, d in cross_exports.items()
+            }
+            from re_agent.backend.cross_ref import CrossRefManager
+            refs = CrossRefManager(resolved).lookup(
+                target.class_name or "", target.function_name or ""
+            )
+            if refs:
+                emit_event(
+                    "cross_ref.completed",
+                    {"target": target, "round": round_num, "references": refs},
+                )
+                msg = (
+                    refs + "\n\nUse these cross-build references to resolve inlining "
+                    "and confirm behavior, then output the corrected C++ function."
+                )
+                if reverser._conversation_id:
+                    response = reverser.llm.resume(reverser._conversation_id, msg)
+                else:
+                    response = reverser.llm.send([
+                        Message(role="system", content=reverser._system_prompt),
+                        Message(role="user", content=reverser.last_prompt),
+                        Message(role="assistant", content=reverser.last_response),
+                        Message(role="user", content=msg),
+                    ])
+                reverser.last_response = response
+                code = reverser._extract_code(response)
+                tag = reverser._extract_tag(response)
+                emit_event(
+                    "reverser.completed",
+                    {
+                        "target": target,
+                        "round": round_num,
+                        "phase": "cross-ref-fix",
+                        "tag": tag,
+                        "code": code,
+                        "code_length": len(code),
+                    },
+                )
+                print("[LOOP] Cross-build references injected and C++ regenerated.")
+            else:
+                emit_event(
+                    "cross_ref.failed",
+                    {"target": target, "round": round_num,
+                     "error": "No same-named function found in other builds."},
+                )
+                print("[LOOP] Warning: no cross-build references found. Continuing.")
+
         # Intercept IDA decompile request if LLM requested it
         if reverser.last_response and "[REQUEST_IDA_DECOMPILE]" in reverser.last_response:
             emit_event(
