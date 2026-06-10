@@ -35,6 +35,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import shutil
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -48,6 +50,16 @@ DEFAULT_COMMAND = "npx -y @agentify/desktop mcp"
 QUERY_TOOL = "agentify_query"
 ENSURE_READY_TOOL = "agentify_ensure_ready"
 DEFAULT_KEY_BASE = "re-agent"
+
+# @agentify/desktop resolves Electron only at its *own nested*
+# ``node_modules/electron`` and throws ``missing_electron_binary`` when npm has
+# hoisted electron to the top-level ``node_modules`` instead.  Its official
+# escape hatch is this env var, pointed at any working electron executable.
+ELECTRON_BIN_ENV = "AGENTIFY_DESKTOP_ELECTRON_BIN"
+# When set (VS Code's extension host sets it), ``electron.exe`` runs as a plain
+# Node interpreter and never opens the browser window — so it must be stripped
+# from the server's environment.
+RUN_AS_NODE_ENV = "ELECTRON_RUN_AS_NODE"
 
 # Schema property names we map onto, by preference, if the exact ones are absent.
 _PROMPT_ARG_HINTS = ("prompt", "text", "message", "input", "content")
@@ -83,11 +95,13 @@ class AgentifyProvider:
         command: str | None = None,
         timeout_s: int = 1800,
         key_base: str = DEFAULT_KEY_BASE,
+        env: dict[str, str] | None = None,
     ) -> None:
         self._model = model
         self._command = (command or DEFAULT_COMMAND).split()
         self._timeout_s = timeout_s
         self._key_base = key_base
+        self._env_overrides = dict(env or {})
         self._conversations: dict[str, _Conversation] = {}
 
         # Background event loop + persistent MCP session, lazily initialised.
@@ -222,6 +236,43 @@ class AgentifyProvider:
             self._loop_thread = thread
             self._run(self._connect())
 
+    def _subprocess_env(self) -> dict[str, str]:
+        """Build the environment for the MCP server subprocess.
+
+        Starts from the full process environment (the MCP stdio client otherwise
+        replaces it with a minimal allow-list that drops the vars Agentify needs)
+        and applies three fixes so ``npx -y @agentify/desktop mcp`` can actually
+        launch its Electron browser window:
+
+        1. Strip ``ELECTRON_RUN_AS_NODE`` — when set (VS Code's extension host
+           sets it for child processes) ``electron.exe`` runs as plain Node and
+           never opens a window.  A caller can re-assert it via ``env`` if needed.
+        2. Auto-point ``AGENTIFY_DESKTOP_ELECTRON_BIN`` at an Electron binary on
+           PATH when neither the process env nor the config already set it — this
+           sidesteps the hoisting bug where the package only looks for Electron
+           nested under its own ``node_modules``.
+        3. Layer any explicit config ``env`` overrides on top (highest priority).
+        """
+        env: dict[str, str] = dict(os.environ)
+        env.pop(RUN_AS_NODE_ENV, None)
+
+        if not env.get(ELECTRON_BIN_ENV) and not self._env_overrides.get(ELECTRON_BIN_ENV):
+            electron = shutil.which("electron")
+            if electron:
+                env[ELECTRON_BIN_ENV] = electron
+                logger.info("Resolved Electron for Agentify at %s", electron)
+            else:
+                logger.warning(
+                    "No 'electron' on PATH and %s is unset; the Agentify server may "
+                    "fail with 'missing_electron_binary'. Install Electron (npm i -g "
+                    "electron) or set %s.",
+                    ELECTRON_BIN_ENV,
+                    ELECTRON_BIN_ENV,
+                )
+
+        env.update(self._env_overrides)
+        return env
+
     async def _connect(self) -> None:
         try:
             from mcp import ClientSession, StdioServerParameters
@@ -232,7 +283,11 @@ class AgentifyProvider:
                 "Install it with: pip install -e \".[agentify]\"  (or pip install mcp)"
             ) from err
 
-        params = StdioServerParameters(command=self._command[0], args=self._command[1:])
+        params = StdioServerParameters(
+            command=self._command[0],
+            args=self._command[1:],
+            env=self._subprocess_env(),
+        )
         self._stdio_cm = stdio_client(params)
         read, write = await self._stdio_cm.__aenter__()
         self._session_cm = ClientSession(read, write)

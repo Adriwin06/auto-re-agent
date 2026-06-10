@@ -68,6 +68,7 @@ def _create_base_provider(config: LLMConfig) -> LLMProvider:
             model=config.model or None,
             command=config.command,
             timeout_s=config.timeout_s,
+            env=config.env,
         )
 
     if provider == "claude-code":
