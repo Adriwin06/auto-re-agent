@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import re
+from functools import lru_cache
 from pathlib import Path
 
 from re_agent.agents.loop import run_fix_loop
 from re_agent.backend.protocol import REBackend
 from re_agent.config.schema import ReAgentConfig
-from re_agent.core.models import FunctionTarget, HookEntry, ReversalResult
+from re_agent.core.models import FunctionTarget, HookEntry, ParityStatus, ReversalResult, Verdict
 from re_agent.core.session import Session
 from re_agent.llm.protocol import LLMProvider
 from re_agent.parity.engine import fetch_ghidra_data, score_single
@@ -16,6 +18,244 @@ from re_agent.runtime.events import emit_event
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# b5-decomp integration helpers
+# ---------------------------------------------------------------------------
+
+# single.py lives at: <project>/auto-re-agent/src/re_agent/orchestrator/single.py
+#   parents[0] = orchestrator/
+#   parents[1] = re_agent/
+#   parents[2] = src/
+#   parents[3] = auto-re-agent/
+#   parents[4] = <project root>  (Burnout-Paradise-Decomp_Workflow)
+_PROJECT_ROOT = Path(__file__).parents[4]
+_B5_SRC = _PROJECT_ROOT / "b5-decomp" / "src"
+_CMAKE = _B5_SRC / "CMakeLists.txt"
+
+# Markers that bracket the auto-managed PRIVATE sources block in CMakeLists.txt.
+_AUTO_BEGIN = "# AUTO-BEGIN re-agent"
+_AUTO_END   = "# AUTO-END re-agent"
+
+# Source extensions that hold *implementations* (preferred placement target) vs.
+# declarations only.
+_IMPL_SUFFIXES = (".cpp", ".cc", ".cxx")
+
+
+@lru_cache(maxsize=4)
+def _get_leaked_indexer(leaked_root_str: str | None):
+    """Lazily build & cache a LeakedSourceIndexer for the configured leaked tree.
+
+    Returns ``None`` when no leaked source is configured or the path is missing,
+    so callers transparently fall back to the heuristic mapping.
+    """
+    if not leaked_root_str:
+        return None
+    from re_agent.parity.leaked_indexer import LeakedSourceIndexer
+
+    leaked_path = Path(leaked_root_str)
+    if not leaked_path.is_absolute():
+        leaked_path = _PROJECT_ROOT / leaked_path
+    if not leaked_path.exists():
+        logger.warning("leaked_source_root not found, using heuristic paths: %s", leaked_path)
+        return None
+    return LeakedSourceIndexer(leaked_path)
+
+
+# A prefix-stripped match (e.g. BrnFoo -> Foo) is only trusted when its method
+# implementations concentrate in one directory by at least this fraction; generic
+# residuals like "Module"/"Assert" scatter across the tree and are rejected.
+_STRIP_DOMINANCE = 0.6
+
+
+def _resolve_leaked_name(indexer, class_name: str) -> tuple[str, bool] | None:
+    """Map the (often prefixed) binary class name to the name used in the leaked
+    source, returning ``(name, is_exact)``. IDA/X360 symbols carry ``Brn``/``Cgs``
+    prefixes the leaked source usually omits (``BrnBoostManager`` -> ``BoostManager``),
+    so try the exact name first, then the prefix-stripped form.
+    """
+    known = indexer.known_class_names()
+    if class_name in known:
+        return class_name, True
+    for prefix in ("Brn", "Cgs"):
+        if class_name.startswith(prefix):
+            stripped = class_name[len(prefix):]
+            if stripped and stripped in known:
+                return stripped, False
+    return None
+
+
+def _leaked_relative_dir(indexer, class_name: str, fn_name: str) -> Path | None:
+    """Find the original source directory (relative to the leaked tree root) that
+    owns ``class_name`` — preferring the .cpp where the method is implemented, so
+    the recovered file lands in the real engine folder layout.
+
+    Exact name matches trust both implementation and declaration sites. Prefix-
+    stripped matches trust only a *dominant* implementation directory, to avoid
+    routing on over-generic residual names.
+    """
+    from collections import Counter
+
+    resolved = _resolve_leaked_name(indexer, class_name)
+    if resolved is None:
+        return None
+    name, is_exact = resolved
+    root = indexer.leaked_root
+
+    impl_dirs: Counter[Path] = Counter()
+    method_dir: Path | None = None
+    for (cls, fn), locs in indexer.token_index.items():
+        if cls != name:
+            continue
+        for path, _off in locs:
+            if path.suffix not in _IMPL_SUFFIXES:
+                continue
+            rel = path.parent.relative_to(root)
+            impl_dirs[rel] += 1
+            if fn_name and fn == fn_name and method_dir is None:
+                method_dir = rel
+
+    # 1. The exact method's implementation directory (strongest signal).
+    if method_dir is not None:
+        return method_dir
+    # 2. The densest implementation directory for the class.
+    if impl_dirs:
+        top_dir, top_n = min(impl_dirs.items(), key=lambda kv: (-kv[1], kv[0].as_posix()))
+        if is_exact or top_n / sum(impl_dirs.values()) >= _STRIP_DOMINANCE:
+            return top_dir
+        return None  # stripped name with scattered impls — not trustworthy
+    # 3. Densest declaration directory (exact matches only; headers are noisy).
+    if not is_exact:
+        return None
+    decl_dirs: Counter[Path] = Counter()
+    for path, _off in indexer.class_index.get(name, []):
+        decl_dirs[path.parent.relative_to(root)] += 1
+    if decl_dirs:
+        return min(decl_dirs.items(), key=lambda kv: (-kv[1], kv[0].as_posix()))[0]
+    return None
+
+
+def _heuristic_class_path(class_name: str) -> Path:
+    """Last-resort path mapping for classes absent from the leaked source.
+
+    Cgs* classes live under GameShared/GameClasses/<Module>/; everything else
+    under GameSource/<ClassName>/. Filename is <ClassName>.cpp.
+    """
+    if class_name.startswith("Cgs"):
+        subfolder_map = {
+            "Module": ["CgsModule", "CgsDataBuffer", "CgsDataStructure",
+                        "CgsModuleSingleBuffered"],
+            "Core":   ["CgsAssert", "CgsStringUtils", "CgsCore"],
+            "System": ["CgsHardwareInit", "CgsSystem"],
+            "Containers": ["CgsFlagSet", "CgsContainers"],
+        }
+        sub = "Module"  # default
+        for folder, prefixes in subfolder_map.items():
+            if any(class_name.startswith(p) for p in prefixes):
+                sub = folder
+                break
+        return _B5_SRC / "GameShared" / "GameClasses" / sub / f"{class_name}.cpp"
+    return _B5_SRC / "GameSource" / class_name / f"{class_name}.cpp"
+
+
+def _class_to_b5_path(class_name: str, fn_name: str = "", leaked_root: str | None = None) -> Path:
+    """Map a C++ class/method to its output path inside b5-decomp/src/.
+
+    The folder layout is reconstructed from the leaked source tree (ground truth
+    for the original engine directory structure); the filename is always
+    <ClassName>.cpp so a class's recovered methods accumulate in one file. When
+    the class is not found in the leaked source, fall back to a name heuristic.
+    """
+    indexer = _get_leaked_indexer(leaked_root)
+    if indexer is not None:
+        rel_dir = _leaked_relative_dir(indexer, class_name, fn_name)
+        if rel_dir is not None:
+            return _B5_SRC / rel_dir / f"{class_name}.cpp"
+    return _heuristic_class_path(class_name)
+
+
+def _cmake_rel(cpp_path: Path) -> str:
+    """Return the CMakeLists-relative path string (forward slashes)."""
+    return cpp_path.relative_to(_B5_SRC).as_posix()
+
+
+def _register_in_cmake(cpp_path: Path) -> None:
+    """Ensure the .cpp file is listed inside the auto-managed block in CMakeLists.txt.
+
+    If the auto-managed block does not exist yet it is inserted before the
+    closing ``)`` of the first ``target_sources(... PRIVATE`` section.
+    """
+    if not _CMAKE.exists():
+        return
+    rel = _cmake_rel(cpp_path)
+    text = _CMAKE.read_text(encoding="utf-8")
+    if rel in text:
+        return  # already registered
+
+    if _AUTO_BEGIN in text and _AUTO_END in text:
+        # Insert before the end marker
+        text = text.replace(
+            _AUTO_END,
+            f"        {rel}\n{_AUTO_END}",
+        )
+    else:
+        # Create the auto-managed block just before the ``    PUBLIC`` section.
+        insert_block = (
+            f"    {_AUTO_BEGIN}\n"
+            f"        {rel}\n"
+            f"    {_AUTO_END}\n"
+        )
+        text = re.sub(
+            r"(\n    PUBLIC)",
+            f"\n{insert_block}\n    PUBLIC",
+            text,
+            count=1,
+        )
+    _CMAKE.write_text(text, encoding="utf-8")
+    logger.info("CMakeLists.txt: registered %s", rel)
+
+
+def _write_to_b5decomp(result: ReversalResult, leaked_root: str | None = None) -> None:
+    """Append the recovered function code into the per-class .cpp in b5-decomp/src/.
+
+    Only called when the result is considered good enough to commit
+    (checker PASS or parity GREEN/YELLOW or result.success). ``leaked_root`` lets
+    the folder layout be reconstructed from the leaked source tree.
+    """
+    class_name = result.target.class_name or "Unknown"
+    fn_name    = result.target.function_name or "unknown"
+    code       = result.code
+
+    out_path = _class_to_b5_path(class_name, fn_name, leaked_root)
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build a section header so the file stays readable
+        header = (
+            f"// --- {class_name}::{fn_name} "
+            f"[{result.target.address}] ---\n"
+        )
+        separator = "\n" + "/" * 80 + "\n"
+
+        if out_path.exists():
+            existing = out_path.read_text(encoding="utf-8")
+            # Skip if this function is already present (idempotent re-runs)
+            if f"{class_name}::{fn_name}" in existing:
+                return
+            out_path.write_text(existing + separator + header + code + "\n", encoding="utf-8")
+        else:
+            out_path.write_text(header + code + "\n", encoding="utf-8")
+
+        logger.info("b5-decomp: wrote %s::%s -> %s", class_name, fn_name, out_path)
+        emit_event("b5decomp.written", {"target": result.target, "path": str(out_path)})
+
+        _register_in_cmake(out_path)
+    except OSError as exc:
+        logger.warning("b5-decomp write failed for %s::%s: %s", class_name, fn_name, exc)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def reverse_single(
     target: FunctionTarget,
@@ -143,6 +383,16 @@ def reverse_single(
     if session:
         session.record_result(result)
         emit_event("session.recorded", {"target": target, "result": result})
+
+    # --- Write to b5-decomp automatically on success ---
+    # Criteria: checker passed OR parity is GREEN or YELLOW OR result.success.
+    _checker_ok = (
+        result.checker_verdict is not None
+        and result.checker_verdict.verdict == Verdict.PASS
+    )
+    _parity_ok = result.parity_status in (ParityStatus.GREEN, ParityStatus.YELLOW)
+    if result.code and (_checker_ok or _parity_ok or result.success):
+        _write_to_b5decomp(result, config.project_profile.leaked_source_root)
 
     emit_event("reverse_single.completed", {"target": target, "result": result})
     return result

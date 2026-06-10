@@ -29,8 +29,18 @@ class LeakedSourceIndexer:
 
         self.function_cache: dict[tuple[str, str], str | None] = {}
         self.class_cache: dict[str, str | None] = {}
+        self._known_class_names: frozenset[str] | None = None
 
         self._build_index()
+
+    def known_class_names(self) -> frozenset[str]:
+        """All class names known to the leaked source — from both class/struct
+        declarations and ``Class::method`` definition tokens. Cached."""
+        if self._known_class_names is None:
+            names = set(self.class_index)
+            names.update(cls for cls, _fn in self.token_index)
+            self._known_class_names = frozenset(names)
+        return self._known_class_names
 
     def _read_text(self, path: Path) -> str:
         txt = self.file_text_cache.get(path)
