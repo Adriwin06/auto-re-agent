@@ -109,7 +109,10 @@ def count_calls(
         if tok.endswith("::operator") or tok == "operator":
             continue
         total += 1
-        if tok.startswith(stub_call_prefix):
+        # An empty prefix means the project has no plugin/stub-call convention
+        # (e.g. Burnout) — without this guard ``"".startswith("")`` is always
+        # True and every ordinary call is misclassified as a plugin call.
+        if stub_call_prefix and tok.startswith(stub_call_prefix):
             plugin += 1
         else:
             non_plugin += 1

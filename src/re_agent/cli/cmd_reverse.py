@@ -37,16 +37,20 @@ def cmd_reverse(args: argparse.Namespace) -> int:
         class_name = args.class_name or ""
         function_name = ""
 
-        # Try to resolve function metadata from the backend
-        if not class_name:
-            try:
-                dec = backend.decompile(args.address)
-                if dec.name and "::" in dec.name:
-                    class_name, _, function_name = dec.name.rpartition("::")
-                elif dec.name:
-                    function_name = dec.name
-            except Exception:
-                pass  # Best-effort; proceed with empty metadata
+        # Always resolve the function name from the backend; only adopt the
+        # decompile's class when --class was not supplied. (Skipping this when
+        # --class is given would leave function_name empty, which breaks parity
+        # body lookup.)
+        try:
+            dec = backend.decompile(args.address)
+            if dec.name and "::" in dec.name:
+                derived_class, _, function_name = dec.name.rpartition("::")
+                if not class_name:
+                    class_name = derived_class
+            elif dec.name:
+                function_name = dec.name
+        except Exception:
+            pass  # Best-effort; proceed with empty metadata
 
         target = FunctionTarget(
             address=args.address,

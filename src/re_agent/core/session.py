@@ -57,6 +57,22 @@ class Session:
         addr = normalize_address(address)
         return addr in self._data["functions"]
 
+    def get_known_class(self, address: str) -> str | None:
+        """Return a previously-recorded qualified class for *address*, if any.
+
+        Lets a later run of a bare-named function (whose LLM output omitted the
+        class) reuse the class an earlier run — or an explicit ``--class`` — already
+        established for the same address. Ignores the ``Unknown`` placeholder.
+        """
+        addr = normalize_address(address)
+        func = self._data["functions"].get(addr)
+        if not func:
+            return None
+        cls = (func.get("class_name") or "").strip()
+        if cls and cls != "Unknown":
+            return cls
+        return None
+
     def get_class_summary(self, class_name: str) -> dict[str, int]:
         total = 0
         passed = 0

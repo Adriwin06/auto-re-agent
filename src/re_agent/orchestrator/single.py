@@ -330,12 +330,15 @@ def reverse_single(
         ida_bin=config.backend.ida_bin,
     )
 
-    # Recover the fully-qualified class from the generated code when the target
-    # was launched by bare function name (the X360 export often lacks Class::).
-    # This routes the file to the correct class folder (not Unknown/) and lets
-    # parity locate the body by class on re-runs.
+    # Recover the fully-qualified class when the target was launched by bare
+    # function name (the X360 export often lacks Class::). Prefer the class the
+    # LLM emitted this run; otherwise reuse one an earlier run — or an explicit
+    # --class — already recorded for this address. Routes the file to the right
+    # class folder (not Unknown/) and lets parity locate the body on re-runs.
     if result.code and not target.class_name:
         discovered = _extract_qualified_class(result.code, target.function_name)
+        if not discovered and session is not None:
+            discovered = session.get_known_class(target.address)
         if discovered:
             target = replace(target, class_name=discovered)
             result = replace(result, target=target)
