@@ -323,18 +323,25 @@ class GhidraBridgeBackend:
             if not _is_address_token(addr):
                 continue
 
-            name = parts[1] if len(parts) > 1 else ""
             class_name = ""
             caller_count = 0
+
+            # Caller count appears as "(N callers)" or "[ N callers]" depending
+            # on the sub-command; accept both bracket styles anywhere in the line.
+            cm = re.search(r"[\(\[]\s*(\d+)\s+callers?\s*[\)\]]", line)
+            if cm:
+                caller_count = int(cm.group(1))
+
+            # The name is the first token left after stripping the address and
+            # the callers bracket (naively splitting made "[" the name for the
+            # "0xADDR  [ N callers]  Name" format).
+            rest = line[len(addr):]
+            rest = re.sub(r"[\(\[]\s*\d+\s+callers?\s*[\)\]]", "", rest).strip()
+            name = rest.split()[0] if rest else ""
 
             # Split "Class::Func" into class_name and name.
             if "::" in name:
                 class_name, _, name = name.rpartition("::")
-
-            # Look for "(N callers)" at the end.
-            cm = re.search(r"\((\d+)\s+callers?\)", line)
-            if cm:
-                caller_count = int(cm.group(1))
 
             results.append(
                 FunctionEntry(

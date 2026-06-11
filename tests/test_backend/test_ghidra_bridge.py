@@ -99,6 +99,22 @@ def test_parse_function_list_real_entries() -> None:
     ]
 
 
+def test_parse_function_list_bracket_caller_format() -> None:
+    """The ``unimplemented`` sub-command emits ``0xADDR  [ N callers]  Name``."""
+    raw = (
+        "Unimplemented functions: 59\n"
+        "(Sorted by number of callers - most important first)\n"
+        "\n"
+        "  0x82b6e848  [ 14 callers]  SetAttribute\n"
+        "  0x82805828  [ 10 callers]  Attrib::StringToKey\n"
+    )
+    entries = GhidraBridgeBackend._parse_function_list(raw)
+    assert [(e.address, e.class_name, e.name, e.caller_count) for e in entries] == [
+        ("0x82b6e848", "", "SetAttribute", 14),
+        ("0x82805828", "Attrib", "StringToKey", 10),
+    ]
+
+
 def test_parse_function_list_rejects_status_messages() -> None:
     """Prose/error/empty CLI output must yield no phantom functions.
 

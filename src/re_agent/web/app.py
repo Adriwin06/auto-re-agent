@@ -111,6 +111,30 @@ class RunManager:
     def list_runs(self) -> list[dict[str, Any]]:
         return sorted(self.runs.values(), key=lambda item: item["started_at"], reverse=True)
 
+    def reset(self) -> tuple[int, dict[str, Any]]:
+        """Wipe session progress and delete all auto-generated outputs."""
+        with self._lock:
+            if self._active_thread and self._active_thread.is_alive():
+                return 409, {"error": "A run is active; wait for it to finish before resetting."}
+
+        import shutil
+
+        from re_agent.orchestrator.single import reset_b5_outputs
+
+        config = load_config(self.config_path)
+        removed = reset_b5_outputs()
+
+        session_file = Path(config.output.session_file)
+        if session_file.exists():
+            session_file.write_text('{"functions": {}, "runs": []}', encoding="utf-8")
+
+        code_dir = Path(config.output.report_dir) / "code"
+        if code_dir.exists():
+            shutil.rmtree(code_dir, ignore_errors=True)
+
+        self.hub.emit("session.reset", {"removed_files": removed, "session_cleared": True})
+        return 200, {"removed_files": removed, "session_cleared": True}
+
     def _run(self, run_id: str, request: dict[str, Any]) -> None:
         run = self.runs[run_id]
         run["status"] = "running"
@@ -159,7 +183,19 @@ class RunManager:
         checker_llm = TracedLLMProvider(checker_base, "checker")
         session = Session(config.output.session_file)
 
+        # Infer the mode from the filled-in fields so a stale Mode dropdown can
+        # never produce "address is required" when the user clearly typed a
+        # class (and vice versa).
         mode = request.get("mode")
+        address_in = str(request.get("address") or "").strip()
+        class_in = str(request.get("class_name") or "").strip()
+        if mode == "address" and not address_in and class_in:
+            mode = "class"
+        elif mode == "class" and not class_in and address_in:
+            mode = "address"
+        elif mode not in ("address", "class"):
+            mode = "address" if address_in else "class" if class_in else mode
+
         if mode == "address":
             from re_agent.orchestrator.single import reverse_single
 
@@ -263,6 +299,36 @@ def create_app(config_path: str | Path) -> Any:
         status, body = manager.start(request)
         return JSONResponse(body, status_code=status)
 
+    @app.post("/api/reset")
+    async def reset() -> JSONResponse:
+        status, body = await asyncio.to_thread(manager.reset)
+        return JSONResponse(body, status_code=status)
+
+    @app.get("/api/search")
+    async def search(q: str = "") -> JSONResponse:
+        """Search the active backend for functions/classes matching ``q``."""
+        q = q.strip()
+        if len(q) < 2:
+            return JSONResponse({"classes": [], "functions": []})
+
+        def _search() -> dict[str, Any]:
+            from re_agent.backend.registry import create_backend
+
+            config = load_config(Path(config_path))
+            backend = create_backend(config.backend)
+            try:
+                entries = backend.search(q)
+            except Exception:
+                return {"classes": [], "functions": []}
+            classes = sorted({e.class_name for e in entries if e.class_name})[:30]
+            functions = [
+                {"address": e.address, "name": e.name, "class_name": e.class_name}
+                for e in entries[:50]
+            ]
+            return {"classes": classes, "functions": functions}
+
+        return JSONResponse(await asyncio.to_thread(_search))
+
     @app.get("/events")
     async def events() -> StreamingResponse:
         queue = await hub.subscribe()
@@ -360,15 +426,16 @@ INDEX_HTML = r"""<!doctype html>
       <div class="content stack">
         <div>
           <label>Mode</label>
-          <select id="mode"><option value="address">Address</option><option value="class">Class</option></select>
+          <select id="mode"><option value="class">Class</option><option value="address">Address</option></select>
         </div>
-        <div>
+        <div id="addressField" style="display:none">
           <label>Address</label>
-          <input id="address" placeholder="0x6F86A0">
+          <input id="address" placeholder="0x821f5bd8">
         </div>
         <div>
-          <label>Class</label>
-          <input id="className" placeholder="CPhysics">
+          <label>Class <span class="status">(type 2+ chars to search the binary)</span></label>
+          <input id="className" placeholder="e.g. Attrib" autocomplete="off">
+          <div id="searchResults" class="stack" style="gap:4px; margin-top:6px; max-height:180px; overflow:auto"></div>
         </div>
         <div>
           <label>Function</label>
@@ -380,6 +447,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         <label><input id="skipParity" type="checkbox" style="width:auto; margin-right:6px">Skip parity</label>
         <button id="startBtn">Start Run</button>
+        <button id="resetBtn" style="background:#3a2626; border-color:#5a3b3b">Reset progress &amp; outputs</button>
         <div class="panel-title" style="padding-left:0;border-bottom:0">Current</div>
         <div id="current" class="kv"></div>
         <div class="panel-title" style="padding-left:0;border-bottom:0">Progress</div>
@@ -419,9 +487,16 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelectorAll('.tabPanel').forEach(p => p.style.display = 'none');
       btn.classList.add('active'); $(btn.dataset.tab).style.display = 'block';
     });
+    $('mode').onchange = () => {
+      const isAddr = $('mode').value === 'address';
+      $('addressField').style.display = isAddr ? 'block' : 'none';
+    };
     $('startBtn').onclick = async () => {
+      const mode = $('mode').value;
+      if (mode === 'class' && !$('className').value.trim()) { alert('Class mode needs a class name — type one (the search below the field shows what exists).'); return; }
+      if (mode === 'address' && !$('address').value.trim()) { alert('Address mode needs an address (e.g. 0x821f5bd8).'); return; }
       const body = {
-        mode: $('mode').value,
+        mode,
         address: $('address').value,
         class_name: $('className').value,
         function_name: $('functionName').value,
@@ -432,6 +507,30 @@ INDEX_HTML = r"""<!doctype html>
       const res = await fetch('/api/runs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) alert(data.error || 'failed to start');
+    };
+    $('resetBtn').onclick = async () => {
+      if (!confirm('Delete ALL generated outputs in b5-decomp and wipe session progress?')) return;
+      const res = await fetch('/api/reset', { method:'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'reset failed'); return; }
+      alert('Reset done. Removed: ' + ((data.removed_files || []).join(', ') || 'no files') + '.');
+      loadProgress();
+    };
+    let searchTimer = null;
+    $('className').oninput = () => {
+      clearTimeout(searchTimer);
+      const q = $('className').value.trim();
+      if (q.length < 2) { $('searchResults').innerHTML = ''; return; }
+      searchTimer = setTimeout(async () => {
+        $('searchResults').innerHTML = '<div class="status">searching…</div>';
+        const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+        const data = await res.json();
+        const classes = (data.classes || []).map(c =>
+          `<button class="tab" style="text-align:left" onclick="document.getElementById('className').value='${esc(c)}';document.getElementById('searchResults').innerHTML=''">class ${esc(c)}</button>`).join('');
+        const fns = (data.functions || []).slice(0, 15).map(f =>
+          `<button class="tab" style="text-align:left" onclick="document.getElementById('mode').value='address';document.getElementById('mode').onchange();document.getElementById('address').value='${esc(f.address)}';document.getElementById('searchResults').innerHTML=''">${esc(f.address)} ${esc(f.class_name ? f.class_name + '::' : '')}${esc(f.name)}</button>`).join('');
+        $('searchResults').innerHTML = (classes + fns) || '<div class="status">no matches in the binary</div>';
+      }, 350);
     };
     async function loadProgress() {
       const res = await fetch('/api/progress');

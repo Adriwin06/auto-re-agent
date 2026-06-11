@@ -254,6 +254,46 @@ def _cmake_rel(cpp_path: Path) -> str:
     return cpp_path.relative_to(_B5_SRC).as_posix()
 
 
+def reset_b5_outputs() -> list[str]:
+    """Delete every auto-registered output and empty the CMake AUTO block.
+
+    Removes each file listed between the AUTO-BEGIN/AUTO-END markers in
+    CMakeLists.txt (plus its parent directory when that leaves it empty) and
+    rewrites the block with no entries. Only files inside ``b5-decomp/src``
+    are touched. Returns the relative paths that were removed.
+    """
+    removed: list[str] = []
+    if not _CMAKE.exists():
+        return removed
+    text = _CMAKE.read_text(encoding="utf-8")
+    m = re.search(
+        rf"^(?P<indent>[ \t]*){re.escape(_AUTO_BEGIN)}\n(?P<body>.*?)^[ \t]*{re.escape(_AUTO_END)}",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not m:
+        return removed
+    for line in m.group("body").splitlines():
+        rel = line.strip()
+        if not rel or rel.startswith("#"):
+            continue
+        target = (_B5_SRC / rel).resolve()
+        # Never step outside b5-decomp/src.
+        if _B5_SRC.resolve() not in target.parents:
+            continue
+        if target.exists():
+            target.unlink()
+            removed.append(rel)
+            parent = target.parent
+            if parent != _B5_SRC.resolve() and not any(parent.iterdir()):
+                parent.rmdir()
+    indent = m.group("indent")
+    text = text[: m.start()] + f"{indent}{_AUTO_BEGIN}\n{indent}{_AUTO_END}" + text[m.end():]
+    _CMAKE.write_text(text, encoding="utf-8")
+    logger.info("b5-decomp: reset %d auto-registered outputs", len(removed))
+    return removed
+
+
 def _register_in_cmake(cpp_path: Path) -> None:
     """Ensure the .cpp file is listed inside the auto-managed block in CMakeLists.txt.
 
@@ -268,10 +308,15 @@ def _register_in_cmake(cpp_path: Path) -> None:
         return  # already registered
 
     if _AUTO_BEGIN in text and _AUTO_END in text:
-        # Insert before the end marker
-        text = text.replace(
-            _AUTO_END,
-            f"        {rel}\n{_AUTO_END}",
+        # Insert before the end-marker *line*, preserving its indentation.
+        # A bare ``text.replace(_AUTO_END, ...)`` would absorb the marker's
+        # leading whitespace into the inserted line (mis-indenting both).
+        text = re.sub(
+            rf"^([ \t]*){re.escape(_AUTO_END)}",
+            rf"        {rel}\n\g<1>{_AUTO_END}",
+            text,
+            count=1,
+            flags=re.MULTILINE,
         )
     else:
         # Create the auto-managed block just before the ``    PUBLIC`` section.

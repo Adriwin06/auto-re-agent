@@ -38,7 +38,8 @@ def test_claude_code_argv_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = ClaudeCodeProvider(model="claude-opus-4-8", timeout_s=120)
     out = provider.send([Message(role="user", content="hi")])
     assert out == "the answer"
-    assert captured["args"][0].endswith(("claude", "claude.CMD", "claude.exe"))
+    # shutil.which may return any casing on Windows (claude.EXE / claude.CMD).
+    assert captured["args"][0].lower().endswith(("claude", "claude.cmd", "claude.exe"))
     assert "--print" in captured["args"]
     assert "--no-session-persistence" in captured["args"]
     assert "--model" in captured["args"]
