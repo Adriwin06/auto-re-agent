@@ -165,6 +165,46 @@ def _extract_qualified_class(code: str, fn_name: str) -> str | None:
     return None
 
 
+def _looks_like_address(name: str | None) -> bool:
+    """True when ``name`` is a raw-address placeholder rather than a real symbol.
+
+    When a function is launched by address and the export has no symbol for it,
+    the backend hands back the address string itself (``0x822c0e10``) or a
+    ``sub_<hex>`` stub as the "name". Those must not be written into source as
+    the method name.
+    """
+    if not name:
+        return True
+    return bool(re.fullmatch(r"(?:sub_|loc_|fun_)?0?x?[0-9a-fA-F]+", name))
+
+
+def _extract_method_def(code: str) -> tuple[str, str] | None:
+    """Recover ``(qualified_class, method_name)`` from a generated method body.
+
+    Unlike :func:`_extract_qualified_class`, this does **not** need the function
+    name up front — it scans for the first ``Ret Qualified::method(...) {``
+    *definition* (a body, not a declaration). Used when the function was launched
+    by address and the backend gave no symbol, so the only trustworthy name is
+    the one the LLM emitted in the code. Returns ``None`` for free functions or
+    when no method definition is found.
+    """
+    if not code:
+        return None
+    ident = r"[A-Za-z_]\w*"
+    qual = rf"{ident}(?:::{ident})*"
+    # A definition: Qualified::name( ... ) [const] {  — the trailing brace
+    # distinguishes it from a forward declaration ending in ';'.
+    m = re.search(rf"\b({qual})::({ident})\s*\([^;{{}}]*\)\s*(?:const\s*)?\{{", code)
+    if not m:
+        return None
+    cls, method = m.group(1), m.group(2)
+    nm = re.search(rf"\bnamespace\s+({qual})\s*\{{", code)
+    ns = nm.group(1) if nm else None
+    if ns and not cls.startswith(ns):
+        cls = f"{ns}::{cls}"
+    return cls, method
+
+
 def _heuristic_class_path(class_name: str) -> Path:
     """Last-resort path mapping for classes absent from the leaked source.
 
@@ -330,19 +370,39 @@ def reverse_single(
         ida_bin=config.backend.ida_bin,
     )
 
-    # Recover the fully-qualified class when the target was launched by bare
-    # function name (the X360 export often lacks Class::). Prefer the class the
-    # LLM emitted this run; otherwise reuse one an earlier run — or an explicit
-    # --class — already recorded for this address. Routes the file to the right
-    # class folder (not Unknown/) and lets parity locate the body on re-runs.
-    if result.code and not target.class_name:
-        discovered = _extract_qualified_class(result.code, target.function_name)
-        if not discovered and session is not None:
-            discovered = session.get_known_class(target.address)
-        if discovered:
-            target = replace(target, class_name=discovered)
+    # Recover the fully-qualified class — and, when launched by address with no
+    # symbol, the real method name too — from the code the LLM emitted. The X360
+    # export often lacks Class::; for fully stripped functions the backend hands
+    # back the address itself as the "name" (e.g. 0x822c0e10), which would
+    # otherwise be written as Unknown::0x822c0e10 into GameSource/Unknown/. Prefer
+    # what the LLM emitted this run; otherwise reuse a class an earlier run — or an
+    # explicit --class — already recorded for this address. Routes the file to the
+    # right class folder and lets parity locate the body on re-runs.
+    if result.code:
+        fn_is_placeholder = _looks_like_address(target.function_name)
+        new_class = target.class_name
+        new_fn = target.function_name
+        if not new_class or fn_is_placeholder:
+            method_def = _extract_method_def(result.code)
+            if method_def:
+                emitted_class, emitted_fn = method_def
+                if not new_class:
+                    new_class = emitted_class
+                if fn_is_placeholder and emitted_fn:
+                    new_fn = emitted_fn
+        if not new_class:
+            # Fall back to a class the LLM named against the known fn name, then
+            # to one a prior run recorded for this address.
+            new_class = _extract_qualified_class(result.code, target.function_name)
+            if not new_class and session is not None:
+                new_class = session.get_known_class(target.address)
+        if new_class != target.class_name or new_fn != target.function_name:
+            target = replace(target, class_name=new_class or target.class_name,
+                             function_name=new_fn or target.function_name)
             result = replace(result, target=target)
-            emit_event("class.recovered", {"target": target, "class_name": discovered})
+            emit_event("class.recovered",
+                       {"target": target, "class_name": target.class_name,
+                        "function_name": target.function_name})
 
     # Write generated code to a file so users don't have to dig through logs
     if result.code:
