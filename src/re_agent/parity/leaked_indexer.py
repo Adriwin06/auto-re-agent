@@ -22,8 +22,14 @@ class LeakedSourceIndexer:
             )
 
         self.file_text_cache: dict[Path, str] = {}
-        # Maps (class_name, fn_name) -> list of (path, offset)
+        # Maps (class_name, fn_name) -> list of (path, offset). Holds *every*
+        # ``Class::method(`` occurrence, including bare call sites.
         self.token_index: dict[tuple[str, str], list[tuple[Path, int]]] = defaultdict(list)
+        # Subset of token_index restricted to actual *definitions* (occurrences
+        # backed by a ``{ ... }`` body). Call sites are excluded, so this is the
+        # only safe basis for locating a class's home directory — a class merely
+        # *called* from some file must not be filed under that caller's folder.
+        self.definition_index: dict[tuple[str, str], list[tuple[Path, int]]] = defaultdict(list)
         # Maps class_name -> list of (path, offset)
         self.class_index: dict[str, list[tuple[Path, int]]] = defaultdict(list)
 
@@ -54,7 +60,14 @@ class LeakedSourceIndexer:
             txt = self._read_text(path)
             # Find function tokens (Class::Method)
             for m in FUNC_TOKEN_RE.finditer(txt):
-                self.token_index[(m.group(1), m.group(2))].append((path, m.start()))
+                cls, fn = m.group(1), m.group(2)
+                self.token_index[(cls, fn)].append((path, m.start()))
+                # A real definition is followed by a ``{ ... }`` body; a call
+                # site is not. Record only definitions so placement logic never
+                # mistakes a caller's directory for the class's home.
+                fn_start = m.start() + len(cls) + 2  # skip "Class::"
+                if self._find_function_body_open(txt, fn_start, fn) is not None:
+                    self.definition_index[(cls, fn)].append((path, m.start()))
 
             # Find class declarations (class ClassName)
             for m in CLASS_DECL_RE.finditer(txt):

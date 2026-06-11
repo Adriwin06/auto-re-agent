@@ -104,7 +104,10 @@ def _leaked_relative_dir(indexer, class_name: str, fn_name: str) -> Path | None:
 
     impl_dirs: Counter[Path] = Counter()
     method_dir: Path | None = None
-    for (cls, fn), locs in indexer.token_index.items():
+    # Use definition_index, not token_index: a class merely *called* from a file
+    # (e.g. an external-SDK type like Attrib referenced from BrnBoostStrategy.cpp)
+    # has no definition there and must not be filed under that caller's folder.
+    for (cls, fn), locs in indexer.definition_index.items():
         if cls != name:
             continue
         for path, _off in locs:
