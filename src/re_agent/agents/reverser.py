@@ -50,8 +50,8 @@ class ReverserAgent:
         self.last_prompt: str = ""
         self.last_response: str = ""
 
-    def reverse(self, target: FunctionTarget) -> tuple[str, str]:
-        """Reverse a function. Returns (code, reversed_function_tag)."""
+    def build_prompts(self, target: FunctionTarget) -> tuple[str, str]:
+        """Build the system and task prompts for a function without sending them."""
         # Gather context
         decompile_result = self.backend.decompile(target.address)
         decompiled = decompile_result.raw_output
@@ -95,6 +95,11 @@ class ReverserAgent:
             structs=structs_text or "None",
             source_context=source_context or "None",
         )
+        return system_prompt, task_prompt
+
+    def reverse(self, target: FunctionTarget) -> tuple[str, str]:
+        """Reverse a function. Returns (code, reversed_function_tag)."""
+        system_prompt, task_prompt = self.build_prompts(target)
 
         if self._conversation_id is None and self.llm.supports_conversations:
             self._conversation_id = self.llm.new_conversation(system_prompt)

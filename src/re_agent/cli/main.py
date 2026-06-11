@@ -53,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pre-warm Agentify Desktop browser sessions (one-time interactive sign-in)",
     )
 
+    # prompt
+    prompt_p = sub.add_parser("prompt", help="Display the prompt that would be sent for a function")
+    prompt_p.add_argument("--address", required=True, help="Function address to display prompt for")
+    prompt_p.add_argument("--class", dest="class_name", help="Optional class name override")
+
     return parser
 
 
@@ -87,6 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "agentify-login":
         from re_agent.cli.cmd_agentify_login import cmd_agentify_login
         return cmd_agentify_login(args)
+
+    if args.command == "prompt":
+        from re_agent.cli.cmd_prompt import cmd_prompt
+        return cmd_prompt(args)
 
     parser.print_help()
     return 1
