@@ -335,6 +335,100 @@ def _register_in_cmake(cpp_path: Path) -> None:
     logger.info("CMakeLists.txt: registered %s", rel)
 
 
+def _merge_cpp_sources(existing: str, new_code: str) -> str:
+    """Intelligently merge new function code into an existing C++ file.
+
+    Consolidates #include directives at the top, and inserts the new function
+    body (along with its header comments) inside the namespace block (if present
+    in both files), rather than appending duplicate namespaces or placing
+    includes in the middle of the file.
+    """
+    def extract_includes(content: str) -> tuple[list[str], str]:
+        includes = []
+        clean_lines = []
+        for line in content.splitlines():
+            if line.strip().startswith("#include"):
+                inc = line.strip()
+                if inc not in includes:
+                    includes.append(inc)
+            else:
+                clean_lines.append(line)
+        return includes, "\n".join(clean_lines)
+
+    existing_includes, existing_clean = extract_includes(existing)
+    new_includes, new_code_clean = extract_includes(new_code)
+
+    merged_includes = list(existing_includes)
+    for inc in new_includes:
+        if inc not in merged_includes:
+            merged_includes.append(inc)
+
+    # Detect the namespace name in new_code
+    ns_match = re.search(r"\bnamespace\s+(?P<name>[A-Za-z0-9_:]+)\s*\{", new_code_clean)
+    if ns_match:
+        namespace_name = ns_match.group("name")
+        existing_ns_match = re.search(rf"\bnamespace\s+{re.escape(namespace_name)}\s*\{{", existing_clean)
+
+        if existing_ns_match:
+            ns_start = ns_match.start()
+            block_start = ns_match.end()
+
+            # Brace matching for new_code_clean
+            brace_count = 1
+            i = block_start
+            while i < len(new_code_clean) and brace_count > 0:
+                if new_code_clean[i] == '{':
+                    brace_count += 1
+                elif new_code_clean[i] == '}':
+                    brace_count -= 1
+                i += 1
+
+            if brace_count == 0:
+                ns_body = new_code_clean[block_start:i-1].strip("\n")
+                pre_ns = new_code_clean[:ns_start].strip("\n")
+
+                payload = ""
+                if pre_ns:
+                    payload += pre_ns + "\n"
+                payload += ns_body
+
+                # Brace matching for existing_clean
+                existing_block_start = existing_ns_match.end()
+                existing_brace_count = 1
+                j = existing_block_start
+                while j < len(existing_clean) and existing_brace_count > 0:
+                    if existing_clean[j] == '{':
+                        existing_brace_count += 1
+                    elif existing_clean[j] == '}':
+                        existing_brace_count -= 1
+                    j += 1
+
+                if existing_brace_count == 0:
+                    ns_close_idx = j - 1
+                    before_close = existing_clean[:ns_close_idx].rstrip("\n")
+                    after_close = existing_clean[ns_close_idx:]
+
+                    separator = "\n\n" + "/" * 80 + "\n"
+                    merged_body = before_close + separator + payload + "\n" + after_close
+                else:
+                    separator = "\n\n" + "/" * 80 + "\n"
+                    merged_body = existing_clean + separator + new_code_clean
+            else:
+                separator = "\n\n" + "/" * 80 + "\n"
+                merged_body = existing_clean + separator + new_code_clean
+        else:
+            separator = "\n\n" + "/" * 80 + "\n"
+            merged_body = existing_clean + separator + new_code_clean
+    else:
+        separator = "\n\n" + "/" * 80 + "\n"
+        merged_body = existing_clean + separator + new_code_clean
+
+    header_str = ""
+    if merged_includes:
+        header_str = "\n".join(merged_includes) + "\n\n"
+    return header_str + merged_body.strip("\n") + "\n"
+
+
 def _write_to_b5decomp(result: ReversalResult, leaked_root: str | None = None) -> None:
     """Append the recovered function code into the per-class .cpp in b5-decomp/src/.
 
@@ -355,14 +449,14 @@ def _write_to_b5decomp(result: ReversalResult, leaked_root: str | None = None) -
             f"// --- {class_name}::{fn_name} "
             f"[{result.target.address}] ---\n"
         )
-        separator = "\n" + "/" * 80 + "\n"
 
         if out_path.exists():
             existing = out_path.read_text(encoding="utf-8")
             # Skip if this function is already present (idempotent re-runs)
             if f"{class_name}::{fn_name}" in existing:
                 return
-            out_path.write_text(existing + separator + header + code + "\n", encoding="utf-8")
+            merged = _merge_cpp_sources(existing, header + code)
+            out_path.write_text(merged, encoding="utf-8")
         else:
             out_path.write_text(header + code + "\n", encoding="utf-8")
 
