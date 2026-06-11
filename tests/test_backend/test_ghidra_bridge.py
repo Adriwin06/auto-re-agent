@@ -82,3 +82,34 @@ def test_subcmd_exists_unrecognized_args_not_false_negative() -> None:
             (1, "", "error: missing operand"),
         ]
         assert backend._subcmd_exists("asm") is True
+
+
+def test_parse_function_list_real_entries() -> None:
+    """Rows that lead with a hex address parse into FunctionEntry objects."""
+    raw = (
+        "Found 2 functions matching 'Foo':\n"
+        "\n"
+        "  0x821f5bd8  CameraOwner::GetNormalCamera  (3 callers)\n"
+        "  822c0e10  DoThing\n"
+    )
+    entries = GhidraBridgeBackend._parse_function_list(raw)
+    assert [(e.address, e.class_name, e.name, e.caller_count) for e in entries] == [
+        ("0x821f5bd8", "CameraOwner", "GetNormalCamera", 3),
+        ("822c0e10", "", "DoThing", 0),
+    ]
+
+
+def test_parse_function_list_rejects_status_messages() -> None:
+    """Prose/error/empty CLI output must yield no phantom functions.
+
+    Regression: "No unimplemented functions matching 'X'" previously parsed
+    into FunctionEntry(address="No", name="unimplemented").
+    """
+    for raw in (
+        "No unimplemented functions matching 'Attrib::Instance'",
+        "No functions matching 'Attrib::Instance'",
+        "ERROR: No remaining stubs data and source tree not found.",
+        "Found 0 functions:",
+        "",
+    ):
+        assert GhidraBridgeBackend._parse_function_list(raw) == [], raw

@@ -16,6 +16,16 @@ from re_agent.core.models import (
 )
 from re_agent.utils.process import run_cmd, run_cmd_split
 
+# A real function-list row leads with an address token: ``0x821f5bd8`` or the
+# bare ``821f5bd8`` spelling. Require it so prose/status/error lines from the
+# CLI are never mistaken for functions.
+_ADDRESS_TOKEN_RE = re.compile(r"(?:0x)?[0-9a-fA-F]{4,}$")
+
+
+def _is_address_token(token: str) -> bool:
+    """True when ``token`` is a hex address (with or without ``0x`` prefix)."""
+    return bool(_ADDRESS_TOKEN_RE.fullmatch(token))
+
 
 class GhidraBridgeBackend:
     """Backend that shells out to a Ghidra CLI tool.
@@ -306,6 +316,13 @@ class GhidraBridgeBackend:
                 continue
 
             addr = parts[0]
+            # The first token MUST be a real address. Status messages such as
+            # "No unimplemented functions matching 'X'", "Found N functions:",
+            # or "ERROR: ..." otherwise get mis-parsed into phantom entries
+            # (address="No", name="unimplemented"), which then poison the loop.
+            if not _is_address_token(addr):
+                continue
+
             name = parts[1] if len(parts) > 1 else ""
             class_name = ""
             caller_count = 0
