@@ -172,13 +172,15 @@ def _looks_like_address(name: str | None) -> bool:
     """True when ``name`` is a raw-address placeholder rather than a real symbol.
 
     When a function is launched by address and the export has no symbol for it,
-    the backend hands back the address string itself (``0x822c0e10``) or a
-    ``sub_<hex>`` stub as the "name". Those must not be written into source as
-    the method name.
+    the backend hands back the address string itself (``0x822c0e10``), an IDA
+    ``sub_<hex>`` stub, or — from the Ghidra backend — an uppercase
+    ``FUN_<hex>`` / ``LAB_<hex>`` / ``DAT_<hex>`` label. Those must not be
+    written into source as the method name. Matched case-insensitively so the
+    Ghidra (upper) and IDA (lower) spellings are both caught.
     """
     if not name:
         return True
-    return bool(re.fullmatch(r"(?:sub_|loc_|fun_)?0?x?[0-9a-fA-F]+", name))
+    return bool(re.fullmatch(r"(?:sub_|loc_|fun_|lab_|dat_)?0?x?[0-9a-fA-F]+", name, re.IGNORECASE))
 
 
 def _extract_method_def(code: str) -> tuple[str, str] | None:

@@ -17,6 +17,45 @@ from re_agent.utils.text import (
 
 FUNC_TOKEN_RE = re.compile(r"([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*)\s*\(")
 
+# A bare C++ identifier — the trailing segment we ultimately need to find in code.
+_IDENT_RE = re.compile(r"[A-Za-z_~][A-Za-z0-9_]*")
+
+
+def candidate_identifiers(fn_name: str) -> list[str]:
+    """Normalize a stored symbol name into the C++ identifiers that may appear in
+    generated code, most-specific first.
+
+    The session/backend may hand us a name that is *not* the literal identifier
+    written into the source: Itanium-mangled (``_ZN6Attrib6hash64EPKhjy``),
+    qualified (``Attrib::StringToKey``), or sanitized with ``__`` joiners
+    (``Attrib__StringToKey``). The generated body, however, defines the plain
+    unqualified name (``hash64``/``StringToKey``). Returning the raw name *and*
+    these reductions lets :meth:`SourceIndexer.match_code` locate the body
+    instead of falsely scoring it as missing source (RED).
+    """
+    from re_agent.parity.decfigs_indexer import demangle_tokens
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str | None) -> None:
+        if name and name not in seen and _IDENT_RE.fullmatch(name):
+            seen.add(name)
+            out.append(name)
+
+    add(fn_name)
+    # Itanium-mangled -> trailing unqualified component (e.g. .../hash64).
+    # Some exports prefix an extra underscore (``__ZN...``); collapse leading
+    # underscores to the single ``_Z`` the demangler expects.
+    toks = demangle_tokens(fn_name) or demangle_tokens(re.sub(r"^_+", "_", fn_name))
+    if toks:
+        add(toks[-1])
+    # Qualified or sanitized -> last segment after :: / __ joiners.
+    for sep in ("::", "__"):
+        if sep in fn_name:
+            add(fn_name.rsplit(sep, 1)[-1])
+    return out
+
 
 class SourceIndexer:
     """Indexes C++ source files and locates function bodies by class::function name.
@@ -457,14 +496,17 @@ class SourceIndexer:
         """
         if not code or not fn_name:
             return None
-        pattern = re.compile(rf"\b{re.escape(fn_name)}\s*\(")
-        for m in pattern.finditer(code):
-            idx = m.start()
-            open_brace = self._find_function_body_open(code, idx, fn_name)
-            if open_brace is None:
-                continue
-            close_brace = self._find_matching_brace(code, open_brace)
-            if close_brace is None:
-                continue
-            return self._make_source_match(Path("<candidate>"), code, idx, open_brace, close_brace)
+        # The stored fn_name may be mangled/qualified/sanitized while the code
+        # defines the plain identifier; try each candidate, most-specific first.
+        for ident in candidate_identifiers(fn_name):
+            pattern = re.compile(rf"\b{re.escape(ident)}\s*\(")
+            for m in pattern.finditer(code):
+                idx = m.start()
+                open_brace = self._find_function_body_open(code, idx, ident)
+                if open_brace is None:
+                    continue
+                close_brace = self._find_matching_brace(code, open_brace)
+                if close_brace is None:
+                    continue
+                return self._make_source_match(Path("<candidate>"), code, idx, open_brace, close_brace)
         return None
